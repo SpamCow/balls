@@ -41,7 +41,6 @@ export class ArenaView {
   private falling = new Map<number, { y: number; vy: number; x: number; z: number; vx: number; vz: number }>();
   private marker: THREE.Mesh;
   private snaps: Snap[] = [];
-  private shake = 0;
   private sparks: { mesh: THREE.Mesh; v: THREE.Vector3; life: number }[] = [];
   private fx: Fx[] = [];
   private trails = new Map<number, number>(); // seat -> seconds of dash trail left
@@ -178,7 +177,6 @@ export class ArenaView {
   bump(a: number, b: number, force: number) {
     const mid = this.mid(a, b);
     if (!mid) return;
-    this.shake = Math.min(0.6, this.shake + force * 0.03);
     this.burst(mid, Math.min(14, 4 + Math.round(force)), ["#fff3b0"], 10, 0.5);
   }
 
@@ -319,9 +317,8 @@ export class ArenaView {
       this.marker.position.set(p.x, p.y + 2 + Math.sin(now / 200) * 0.15, p.z);
     } else this.marker.visible = false;
 
-    this.shake *= Math.pow(0.02, dt);
     const z = this.zoom;
-    this.camera.position.set((Math.random() - 0.5) * this.shake, 21 * z + (Math.random() - 0.5) * this.shake, 17 * z);
+    this.camera.position.set(0, 21 * z, 17 * z);
     this.camera.lookAt(0, -1, 1);
   }
 
