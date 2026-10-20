@@ -13,7 +13,7 @@ function ac(): AudioContext | null {
   if (!ctx) {
     const AC = window.AudioContext || (window as any).webkitAudioContext;
     if (!AC) return null;
-    ctx = new AC();
+    ctx = new AC({ latencyHint: "interactive" });
     master = ctx.createGain();
     master.gain.value = muted ? 0 : 0.7;
     // a gentle limiter so a pile of bumps never clips
@@ -65,16 +65,23 @@ function tone(freq: number, dur: number, opts: { type?: OscillatorType; vol?: nu
   o.stop(t + dur + 0.02);
 }
 
+// One second of white noise, made once and reused by every hiss and thump.
+let noiseBuffer: AudioBuffer | null = null;
+function noiseBuf(c: AudioContext) {
+  if (!noiseBuffer) {
+    noiseBuffer = c.createBuffer(1, c.sampleRate, c.sampleRate);
+    const d = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+  return noiseBuffer;
+}
+
 function noise(dur: number, opts: { vol?: number; from?: number; to?: number; q?: number; delay?: number } = {}) {
   const c = ac();
   if (!c || !master || muted) return;
   const t = c.currentTime + (opts.delay ?? 0);
-  const len = Math.max(1, Math.floor(c.sampleRate * dur));
-  const buf = c.createBuffer(1, len, c.sampleRate);
-  const d = buf.getChannelData(0);
-  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
   const src = c.createBufferSource();
-  src.buffer = buf;
+  src.buffer = noiseBuf(c);
   const f = c.createBiquadFilter();
   f.type = "bandpass";
   f.Q.value = opts.q ?? 1.2;
@@ -85,17 +92,20 @@ function noise(dur: number, opts: { vol?: number; from?: number; to?: number; q?
   g.gain.exponentialRampToValueAtTime(opts.vol ?? 0.3, t + 0.01);
   g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
   src.connect(f).connect(g).connect(master);
-  src.start(t);
+  src.start(t, Math.random() * (1 - dur));
+  src.stop(t + dur + 0.02);
 }
 
 let lastBump = 0;
 /** Two balls collide: a rubbery thump whose weight follows the hit's force. */
 export function bump(force: number, mine: boolean) {
   const c = ac();
-  if (!c) return;
-  if (c.currentTime - lastBump < 0.04) return; // a scrum of contacts reads as one hit
-  lastBump = c.currentTime;
+  if (!c || muted) return;
   const k = Math.min(1, force / 10);
+  // a scrum of contacts reads as one hit, and other players' light taps stay quiet
+  if (c.currentTime - lastBump < (mine ? 0.08 : 0.15)) return;
+  if (!mine && k < 0.45) return;
+  lastBump = c.currentTime;
   const vol = (mine ? 0.55 : 0.25) * (0.4 + 0.6 * k);
   tone(150 + 90 * k, 0.16, { type: "sine", vol, slideTo: 55 });
   tone(420 + 300 * k, 0.05, { type: "triangle", vol: vol * 0.5 });
