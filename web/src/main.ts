@@ -1104,11 +1104,6 @@ async function boot() {
     : "Testnet only. Testnet ETH has no value.";
   $("#contract-link").setAttribute("href", cfg.explorer ? `${cfg.explorer}/address/${cfg.contract}` : "#");
   renderWallet();
-  $("#fees-link").onclick = (e) => {
-    e.preventDefault();
-    history.replaceState(null, "", "#fees");
-    openFees();
-  };
   $("#fees-back").onclick = (e) => {
     e.preventDefault();
     history.replaceState(null, "", location.pathname + location.search);

@@ -275,7 +275,7 @@ This needs the owner's explicit yes. Then set:
 
 ### House cut
 
-- **With `FEE_SPLIT` (recommended):** the server deploys a FeeSplitter once and points the house cut at it. Whenever at least 0.002 ETH has built up, it pays both wallets automatically. Anyone can also press **Pay out now** on `/#fees`. Nobody has to connect a wallet.
+- **With `FEE_SPLIT` (recommended):** the server deploys a FeeSplitter once and points the house cut at it. Whenever at least 0.002 ETH has built up, it pays both wallets automatically. To pay out sooner, the owner double-clicks the script in `tools/collect-fees/` (Mac `.command` or Windows `.bat`; put the game's address in `site.txt` first). It holds no keys: it asks the server to run the payout, and the splitter can only ever pay those two wallets. The `/#fees` page also has a **Pay out now** button, but it's no longer linked from the home page. Never set up a script that stores the fee wallets' private keys.
 - **Without `FEE_SPLIT`:** the cut is held in the contract for `FEE_RECIPIENT`, and only that wallet can collect it. Either open `/#fees`, connect that wallet with MetaMask or Rabby and press Collect, or skip the site entirely: from that wallet, send 0 ETH to the contract address with hex data `0x3ccfd60b` (that's `withdraw()`). MetaMask sometimes shows a "drainer" warning for a new site on a shared address like onrender.com. The hex-data route avoids it.
 
 ## Changing the game
