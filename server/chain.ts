@@ -100,6 +100,34 @@ export async function settleMatch(env: Env, matchId: Hex, winner: Address, sig: 
   return null;
 }
 
+/**
+ * Sends the stakes back from a paid match that went stale (didn't fill in time, or was
+ * never settled), paying the gas from the deployer. `done` means nothing in the
+ * contract is waiting on this match any more, so the server can forget it.
+ */
+export async function refundStale(env: Env, matchId: Hex, joinDeadline: number): Promise<{ done: boolean; hash?: Hex }> {
+  const m = await readMatch(env, matchId);
+  const now = Date.now() / 1000;
+  if (m.status === MatchStatus.Settled) return { done: true };
+  if (m.status === MatchStatus.None || (m.status === MatchStatus.Open && m.playerCount === 0)) return { done: now > joinDeadline + 120 };
+  if (m.status === MatchStatus.Open && now < Number(m.joinDeadline) + 15) return { done: false };
+  if (m.status === MatchStatus.Full && now < Number(m.settleDeadline) + 15) return { done: false };
+  if (m.status === MatchStatus.Cancelled) {
+    const address = getAddress(env.CONTRACT_ADDRESS);
+    const pub = publicClient(env);
+    const owed = await Promise.all(m.players.map((p) => pub.readContract({ address, abi: bumperBallsAbi, functionName: "refunded", args: [matchId, p] })));
+    if (owed.every(Boolean)) return { done: true };
+  }
+  const { account, pub, wallet } = deployerClients(env);
+  const hash = await deployerTx(async () => {
+    const { request } = await pub.simulateContract({ account, address: getAddress(env.CONTRACT_ADDRESS), abi: bumperBallsAbi, functionName: "refundAll", args: [matchId] });
+    const h = await wallet.writeContract(request);
+    await pub.waitForTransactionReceipt({ hash: h });
+    return h;
+  });
+  return { done: true, hash };
+}
+
 /** Sends everything in a deployer address (minus gas) to `to`. Used to take a site down
  *  (the deployer only holds gas money), and to move the old deployer's gas money to the new one. */
 export async function sweepDeployer(env: Env, to: Address, key = env.DEPLOYER_KEY): Promise<{ hash: Hex; sent: bigint; from: Address } | null> {

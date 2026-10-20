@@ -106,8 +106,10 @@ npm run build          # needs about 2.5 GB of RAM
 - When there's no contract yet, the server deploys the escrow on its own. This happens once the **deployer address** (shown on the site and in `/api/config` → `paid.deployer`) holds at least 0.002 ETH on the chosen chain.
 - Players pay their entry into the contract with tickets signed by the server.
 - After each match the server signs the result and settles it on-chain, paying a small amount of gas from the deployer.
-- The winner presses Claim to receive the pot. The 5% house cut is sent straight to the fee wallets in the same transaction that ends the match (see House cut).
-- If a match doesn't fill within 10 minutes, or isn't settled within 30, every player can refund themselves straight from the contract.
+- The server settles each match itself, and the contract sends the prize straight to the winner's wallet and the 5% house cut straight to the fee wallets in that same transaction (see House cut). Nobody has to press Claim; the win screen keeps a small "Claim it now" button only as a backup.
+- If a match doesn't fill within 10 minutes, or isn't settled within 30, the server sends every player their stake back by itself within about a minute (`refundAll`, paid from the deployer's gas money). Players can also refund themselves straight from the contract.
+- A wallet that refuses an incoming payment (rare, only some smart-contract wallets) gets it as a balance instead, shown as "Ready to withdraw" under **Your matches**. Privy wallets always accept payments.
+- Keep some ETH in the deployer (about 0.005). Settling and refunds are paid from it; if it runs dry, winners must press Claim themselves and unfilled matches wait for players to press Refund.
 - A **new owner with a new `SERVER_SECRET` gets their own new contract.** That's expected, and the previous owner's contract doesn't matter to them.
 - The contract has tests but has **not been professionally audited**, and real-money games are regulated. You must tell the owner both before turning on mainnet.
 
@@ -336,7 +338,7 @@ Snapshots kept arriving every ~33 ms (99th percentile 36 ms at 100 players, 43 m
 2. Nothing to do for the house cut: it was paid out as each match ended.
 3. Get the deployer's leftover ETH back: set `SWEEP_DEPLOYER_TO=0x<owner wallet>` and restart. The log shows `sent ... ETH from the deployer ... in 0x...`. Then remove the setting again, unless the site is staying down.
 4. Stop the hosting: on Render, Settings → Suspend (or delete); on a VPS, `sudo systemctl disable --now bumper-balls`.
-5. Keep `SERVER_SECRET`. Any match still in the contract can be refunded by its players straight from the contract after the timeout.
+5. Keep `SERVER_SECRET`. Wait 30 minutes after the last match before sweeping the deployer so the server can send back any stakes still waiting. After that, any match still in the contract can be refunded by its players straight from the contract.
 
 ## Troubleshooting
 
@@ -347,7 +349,7 @@ Snapshots kept arriving every ~33 ms (99th percentile 36 ms at 100 players, 43 m
 | Page loads, matches never start | WebSockets blocked (cPanel), or more than one server running |
 | Sign-in does nothing, or 403 | Privy Allowed origins (4a) |
 | Bet buttons locked | The message under the paid section. Deployer funding, on the right network |
-| Player money looks stuck | Under **Your matches** on the home page, press **Refund** once the timeout has passed. It comes straight from the contract |
+| Player money looks stuck | The server sends stakes back by itself about a minute after the timeout, if the deployer has gas money (check the log for `sent the stakes back`). Otherwise, under **Your matches** on the home page, press **Refund** or **Withdraw**; it comes straight from the contract |
 | Lag | Use the mute button to test whether it's the device. Check the server isn't on a free or sleeping plan |
 
 ## Settings

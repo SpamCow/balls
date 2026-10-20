@@ -12,8 +12,10 @@ export interface Env {
   RESULT_SIGNER_KEY: string;
   SESSION_SECRET: string;
   DEPLOYER_KEY: string;
-  /** The deployer of the first contract version, kept only to move its leftover gas money over. */
-  OLD_DEPLOYER_KEY?: string;
+  /** Deployers of earlier contract versions, kept only to move their leftover gas money over. */
+  OLD_DEPLOYER_KEYS: string[];
+  /** Earlier contract versions, so players can still withdraw anything left in them. */
+  OLD_CONTRACTS: string[];
   POLL_MS?: string;
 }
 
@@ -23,7 +25,7 @@ export function loadEnv(e = process.env): Env {
   const derive = (label: string) => keccak256(toHex(`bumper-balls:${label}:${secret}`));
   // A new contract version gets a fresh deployer key, so its contract is again the
   // deployer's first one and lands at a fixed address.
-  const deployerKey = (e.DEPLOYER_KEY as `0x${string}`) || derive("deployer-v2");
+  const deployerKey = (e.DEPLOYER_KEY as `0x${string}`) || derive("deployer-v3");
   const deployer = privateKeyToAccount(deployerKey).address;
   return {
     CHAIN_ID: e.CHAIN_ID || "46630",
@@ -34,7 +36,8 @@ export function loadEnv(e = process.env): Env {
     RESULT_SIGNER_KEY: e.RESULT_SIGNER_KEY || derive("signer"),
     SESSION_SECRET: e.SESSION_SECRET || createHash("sha256").update(`bumper-balls:session:${secret}`).digest("hex"),
     DEPLOYER_KEY: deployerKey,
-    OLD_DEPLOYER_KEY: e.DEPLOYER_KEY ? undefined : derive("deployer"),
+    OLD_DEPLOYER_KEYS: e.DEPLOYER_KEY ? [] : [derive("deployer"), derive("deployer-v2")],
+    OLD_CONTRACTS: e.DEPLOYER_KEY ? [] : [derive("deployer-v2"), derive("deployer")].map((k) => getContractAddress({ from: privateKeyToAccount(k).address, nonce: 0n })),
     POLL_MS: e.POLL_MS,
   };
 }

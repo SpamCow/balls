@@ -450,6 +450,37 @@ export const bumperBallsAbi = [
       {
         "indexed": true,
         "internalType": "address",
+        "name": "to",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "sent",
+        "type": "bool"
+      }
+    ],
+    "name": "PrizePaid",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "matchId",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
         "name": "player",
         "type": "address"
       },
@@ -869,6 +900,19 @@ export const bumperBallsAbi = [
       }
     ],
     "name": "refund",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "matchId",
+        "type": "bytes32"
+      }
+    ],
+    "name": "refundAll",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"

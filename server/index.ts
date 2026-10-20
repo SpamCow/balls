@@ -7,7 +7,7 @@ import { WebSocketServer } from "ws";
 import { toHex, getAddress, isAddress, formatEther, parseEther, type Address, type Hex } from "viem";
 import { CHAINS, JOIN_WINDOW_SEC, TICKET_TTL_SEC, PRESET_BETS, MIN_BET_WEI, DEFAULT_MAX_BET_ETH, parseTier } from "../shared/config";
 import { login, verifyToken } from "./auth";
-import { signerAddress, rpcUrl, signTicket, sweepDeployer, deployerClients } from "./chain";
+import { signerAddress, rpcUrl, signTicket, sweepDeployer, deployerClients, refundStale } from "./chain";
 import { loadEnv } from "./env";
 import { Room, type Config } from "./room";
 import { ensureContract, type ContractStatus } from "./deploy";
@@ -79,6 +79,8 @@ async function queuePaid(tierId: string, address: Address, stale?: string) {
       joinDeadline: now + JOIN_WINDOW_SEC,
     });
     currentTier.set(tier.id, room.cfg.matchId);
+    pendingPaid.set(room.cfg.matchId, room.cfg.joinDeadline!);
+    savePending();
   }
   const t = {
     matchId: room.cfg.matchId as Hex,
@@ -144,18 +146,19 @@ function sweep() {
   if (!sweepTo || swept) return;
   swept = true;
   if (!isAddress(sweepTo)) return log("SWEEP_DEPLOYER_TO is not a wallet address, so nothing was sent");
-  for (const key of [env.DEPLOYER_KEY, env.OLD_DEPLOYER_KEY].filter(Boolean) as string[])
+  for (const key of [env.DEPLOYER_KEY, ...env.OLD_DEPLOYER_KEYS])
     sweepDeployer(env, getAddress(sweepTo), key)
       .then((r) => r && log(`sent ${formatEther(r.sent)} ETH from the deployer ${r.from} to ${sweepTo} in ${r.hash}`))
       .catch((e) => log("couldn't send the deployer's ETH:", (e as Error).message.split("\n")[0]));
 }
 
-// The first contract version had its own deployer. Move any gas money left there to the
-// current deployer so the owner doesn't have to fund it again.
-if (env.OLD_DEPLOYER_KEY && !sweepTo)
-  sweepDeployer(env, deployerClients(env).account.address, env.OLD_DEPLOYER_KEY)
-    .then((r) => r && log(`moved ${formatEther(r.sent)} ETH of gas money from the old deployer ${r.from} to ${deployerClients(env).account.address} in ${r.hash}`))
-    .catch((e) => log("couldn't move the old deployer's ETH:", (e as Error).message.split("\n")[0]));
+// Each contract version has its own deployer. Move any gas money left in the old ones to
+// the current deployer so the owner doesn't have to fund it again.
+if (!sweepTo)
+  for (const key of env.OLD_DEPLOYER_KEYS)
+    sweepDeployer(env, deployerClients(env).account.address, key)
+      .then((r) => r && log(`moved ${formatEther(r.sent)} ETH of gas money from the old deployer ${r.from} to ${deployerClients(env).account.address} in ${r.hash}`))
+      .catch((e) => log("couldn't move the old deployer's ETH:", (e as Error).message.split("\n")[0]));
 
 let contract: ContractStatus = { state: "checking", address: getAddress(env.CONTRACT_ADDRESS) };
 ensureContract(env, (s) => {
@@ -166,6 +169,32 @@ ensureContract(env, (s) => {
   }
   if (s.state !== "checking" && s.state !== "deploying") sweep();
 });
+
+// Paid matches that may still hold stakes. Once one goes stale (it never filled, or was
+// never settled) the server sends everyone's stake back itself, so nobody has to press Refund.
+const pendingFile = DATA_DIR ? path.join(DATA_DIR, "pending-paid.json") : "";
+const pendingPaid = new Map<string, number>(pendingFile && fs.existsSync(pendingFile) ? JSON.parse(fs.readFileSync(pendingFile, "utf8")) : []);
+const savePending = () => pendingFile && fs.writeFileSync(pendingFile, JSON.stringify([...pendingPaid]));
+let refunding = false;
+async function refundSweep() {
+  if (refunding || contract.state !== "live" || sweepTo) return;
+  refunding = true;
+  try {
+    for (const [id, joinDeadline] of [...pendingPaid]) {
+      try {
+        const r = await refundStale(env, id as Hex, joinDeadline);
+        if (r.hash) log(`sent the stakes back for ${id} in ${r.hash}`);
+        if (r.done) pendingPaid.delete(id);
+      } catch (e) {
+        log(`couldn't refund ${id}:`, (e as Error).message.split("\n")[0]);
+      }
+    }
+    savePending();
+  } finally {
+    refunding = false;
+  }
+}
+setInterval(refundSweep, 60_000).unref();
 
 // restore paid matches that were in play when the server stopped
 for (const id of activePaid) {
@@ -239,6 +268,7 @@ const server = http.createServer(async (req, res) => {
         rpcUrl: rpcUrl(env),
         explorer: CHAINS[chainId]?.explorer,
         contract: contract.address,
+        oldContracts: env.OLD_CONTRACTS,
         paid: contract,
         signer: signerAddress(env),
         walletConnectProjectId: env.WALLETCONNECT_PROJECT_ID || null,

@@ -7,7 +7,7 @@ Everyone pays the same entry fee into an escrow contract; the last ball on the s
 
 | Path | What |
 |---|---|
-| `contracts/BumperBalls.sol` | Escrow contract: signed join tickets, signed results, timeouts, refunds, pull payments |
+| `contracts/BumperBalls.sol` | Escrow contract: signed join tickets, signed results, timeouts, refunds paid straight to wallets |
 | `shared/` | Physics simulation, EIP-712 types, tiers/chain config, generated ABI and bytecode |
 | `server/` | Node server: static site, wallet sign-in, matchmaking, authoritative game rooms, escrow auto-deploy |
 | `web/` | Vite + three.js client: 3D arena, keyboard/touch controls, Privy sign-in with built-in wallets (EIP-6963 + WalletConnect when Privy isn't set up) |
@@ -30,16 +30,17 @@ The platform starts shrinking 3 seconds in and keeps closing until 70 seconds, s
 2. Player picks a mode, size and entry amount; the lobby returns a **join ticket** signed by the server for the current open match (matchId, player, fee, size, deadlines).
 3. Player calls `join(...)` with the entry fee. The first ticket fixes the match's fee, size, fee bps and signer; later tickets must match.
 4. When all seats are paid on-chain (`MatchFull`), the room counts down and runs the physics at 60 Hz. Clients only send steering input.
-5. The room signs `MatchResult(matchId, winner)` (EIP-712, bound to chain + contract). The winner calls `claim`, which settles and withdraws in one transaction.
+5. The room signs `MatchResult(matchId, winner)` (EIP-712, bound to chain + contract). The server submits it with `settle`, which sends the prize to the winner and the cut to the fee wallets in one transaction (the winner can also `claim` it themselves).
 
 ## Safety properties (tested)
 
 - Winner must be one of the match's paid players; results are bound to one match, chain and contract.
 - Fee (≤10% hard cap) and signer are snapshotted per match, so admin changes can't touch running matches.
-- Match not full by its join deadline (10 min), or not settled within the settle timeout (30 min): every player can `refund` with no one's permission.
+- Match not full by its join deadline (10 min), or not settled within the settle timeout (30 min): anyone can call `refundAll` (the server does it automatically) and every player can `refund` with no one's permission.
 - `leave` refunds instantly before a match fills. Pausing only blocks new joins.
 - Server restart mid-match → the room signs a "no winner" result so everyone is refunded immediately.
 - Nobody touched their controls → no winner, everyone refunded.
+- Payouts are pushed with limited gas; a wallet that refuses one gets a withdrawable balance instead, so one wallet can't block a match.
 - Server-side: rate-limited, size-capped, sanitized inputs; one connection per wallet; HMAC session tokens.
 
 Trust assumption: players trust the game server to report the true winner (it can't send funds anywhere else).

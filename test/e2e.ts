@@ -4,6 +4,7 @@
 // and the winner claims the pot from the contract.
 import { createPublicClient, createWalletClient, http, type Hex, type Address } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import { MatchStatus } from "../shared/eip712.ts";
 import { bumperBallsAbi } from "../shared/abi.ts";
 import { SNAP_STRIDE } from "../shared/physics.ts";
 
@@ -66,6 +67,7 @@ for (const p of players) {
   await pub.waitForTransactionReceipt({ hash });
 }
 console.log(`✓ both paid into match ${matchId}`);
+const paidIn = await Promise.all(players.map((p) => pub.getBalance({ address: p.acct.address })));
 
 // a third queue request must now get a different (fresh) match
 await new Promise((r) => setTimeout(r, 1500));
@@ -120,20 +122,28 @@ const w = over.winnerSeat === results[0].you ? 0 : 1;
 const loser = players[1 - w];
 try {
   await pub.simulateContract({ account: loser.acct, address: cfg.contract, abi: bumperBallsAbi, functionName: "claim", args: [matchId!, loser.acct.address, over.sig] });
-  throw new Error("loser claim should fail");
+  // once the server has settled the match, claim is a harmless no-op for a loser
+  const m = (await pub.readContract({ address: cfg.contract, abi: bumperBallsAbi, functionName: "getMatch", args: [matchId!] })) as any;
+  const owed = (await pub.readContract({ address: cfg.contract, abi: bumperBallsAbi, functionName: "balances", args: [loser.acct.address] })) as bigint;
+  if (Number(m.status) !== MatchStatus.Settled || owed !== 0n) throw new Error("loser claim should fail");
 } catch (e: any) {
-  // BadSignature if the match is still unsettled; NothingToWithdraw once the server settled it
-  if (!/BadSignature|NothingToWithdraw/.test(e.message)) throw e;
+  if (!/BadSignature/.test(e.message)) throw e;
 }
 console.log("✓ loser can't reuse the winner's signature");
 
+// the server settles the match itself and the contract sends the prize straight to the winner
 const winner = players[w];
-const before = await pub.getBalance({ address: winner.acct.address });
-const hash = await winner.wallet.writeContract({ address: cfg.contract, abi: bumperBallsAbi, functionName: "claim", args: [matchId!, over.winner, over.sig] });
-const rc = await pub.waitForTransactionReceipt({ hash });
-const gained = (await pub.getBalance({ address: winner.acct.address })) - before + rc.gasUsed * rc.effectiveGasPrice;
-console.log(`✓ winner claimed ${Number(gained) / 1e18} ETH`);
+for (let i = 0; ; i++) {
+  const m = (await pub.readContract({ address: cfg.contract, abi: bumperBallsAbi, functionName: "getMatch", args: [matchId!] })) as any;
+  if (Number(m.status) === MatchStatus.Settled) break;
+  if (i > 60) throw new Error("the server never settled the match");
+  await new Promise((r) => setTimeout(r, 1000));
+}
+const gained = (await pub.getBalance({ address: winner.acct.address })) - paidIn[w];
+console.log(`✓ winner was paid ${Number(gained) / 1e18} ETH without claiming`);
 if (gained !== PRIZE) throw new Error(`unexpected payout ${gained}`);
+const left = (await pub.readContract({ address: cfg.contract, abi: bumperBallsAbi, functionName: "balances", args: [winner.acct.address] })) as bigint;
+if (left !== 0n) throw new Error(`prize left in the contract: ${left}`);
 
 // the contract sends the house cut straight to the fee wallets when the match settles
 {

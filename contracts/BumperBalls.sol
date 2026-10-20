@@ -16,8 +16,10 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 ///  - if a match doesn't fill or isn't settled in time, every player can
 ///    reclaim their full stake without anyone's permission,
 ///  - pausing only blocks new joins; refunds and withdrawals always work.
-/// The house cut is sent straight to up to two fee wallets in the same
-/// transaction that settles each match, so nobody has to collect it.
+/// The prize, the house cut and refunds are sent straight to the wallets in
+/// the transaction that settles or calls off each match, so nobody has to
+/// collect anything. A wallet that refuses a payment gets it as a balance it
+/// can withdraw instead, so one bad wallet can never block a match.
 contract BumperBalls is EIP712, Ownable2Step, ReentrancyGuard {
     uint16 public constant MAX_FEE_BPS = 1000; // 10% hard cap
     uint8 public constant MAX_PLAYERS = 4;
@@ -49,11 +51,11 @@ contract BumperBalls is EIP712, Ownable2Step, ReentrancyGuard {
     bytes32 private constant RESULT_TYPEHASH = keccak256("MatchResult(bytes32 matchId,address winner)");
 
     /// @notice Bumped when the contract changes, so the server can tell versions apart.
-    uint8 public constant VERSION = 2;
-    /// @dev Gas each fee wallet gets when the cut is pushed to it. Enough for a
+    uint8 public constant VERSION = 3;
+    /// @dev Gas each wallet gets when a payment is pushed to it. Enough for a
     /// normal wallet or a Safe; if a push fails the amount is kept as a balance
     /// the wallet can withdraw, so settling can never be blocked.
-    uint256 private constant FEE_PUSH_GAS = 60_000;
+    uint256 private constant PUSH_GAS = 60_000;
 
     address public signer;
     address public feeRecipient; // gets feeShareBps of the cut
@@ -78,6 +80,7 @@ contract BumperBalls is EIP712, Ownable2Step, ReentrancyGuard {
     event SignerChanged(address signer);
     event FeeChanged(uint16 feeBps, address feeRecipient, address feeRecipient2, uint16 feeShareBps);
     event FeePaid(bytes32 indexed matchId, address indexed to, uint256 amount, bool sent);
+    event PrizePaid(bytes32 indexed matchId, address indexed to, uint256 amount, bool sent);
     event SettleTimeoutChanged(uint64 settleTimeout);
     event Paused(bool paused);
 
@@ -193,12 +196,7 @@ contract BumperBalls is EIP712, Ownable2Step, ReentrancyGuard {
         if (winner == address(0)) {
             m.status = Status.Cancelled;
             emit MatchCancelled(matchId);
-            uint256 n = m.playerCount;
-            for (uint256 i; i < n; ++i) {
-                address p = m.players[i];
-                refunded[matchId][p] = true;
-                balances[p] += m.entryFee;
-            }
+            _refundEveryone(matchId, m);
             return;
         }
 
@@ -207,28 +205,38 @@ contract BumperBalls is EIP712, Ownable2Step, ReentrancyGuard {
         m.winner = winner;
         uint256 pot = uint256(m.entryFee) * m.playerCount;
         uint256 fee = (pot * m.feeBps) / 10_000;
-        balances[winner] += pot - fee;
         emit MatchSettled(matchId, winner, pot - fee, fee);
-        // every state change is done; now push the cut to the fee wallets
+        // every state change is done; now push the prize and the cut
+        emit PrizePaid(matchId, winner, pot - fee, _push(winner, pot - fee));
         uint256 first = (fee * feeShareBps) / 10_000;
         _payFee(matchId, feeRecipient, first);
         _payFee(matchId, feeRecipient2, fee - first);
     }
 
-    /// @notice Settle (if needed) and withdraw the caller's balance in one go.
+    /// @notice Settle (if needed) and withdraw anything the caller is owed in one go.
     function claim(bytes32 matchId, address winner, bytes calldata resultSig) external {
         if (matches[matchId].status == Status.Full) settle(matchId, winner, resultSig);
-        withdraw();
+        if (balances[msg.sender] > 0) withdraw();
+    }
+
+    /// @notice Send every player their stake back from a match that never filled
+    /// or was never settled in time. Anyone may call it (the game server does,
+    /// so players don't have to), and it only ever pays the match's own players.
+    function refundAll(bytes32 matchId) external nonReentrant {
+        Match storage m = matches[matchId];
+        if (!_stale(m)) revert NotRefundable();
+        if (m.status != Status.Cancelled) {
+            m.status = Status.Cancelled;
+            emit MatchCancelled(matchId);
+        }
+        _refundEveryone(matchId, m);
     }
 
     /// @notice Reclaim a stake from a match that never filled before its join
     /// deadline, or was never settled before its settle deadline.
     function refund(bytes32 matchId) external nonReentrant {
         Match storage m = matches[matchId];
-        bool stale = (m.status == Status.Open && block.timestamp >= m.joinDeadline)
-            || (m.status == Status.Full && block.timestamp > m.settleDeadline)
-            || m.status == Status.Cancelled;
-        if (!stale) revert NotRefundable();
+        if (!_stale(m)) revert NotRefundable();
         if (_seatOf(m, msg.sender) == type(uint8).max) revert NotAPlayer();
         if (refunded[matchId][msg.sender]) revert NotRefundable();
         if (m.status != Status.Cancelled) {
@@ -303,9 +311,32 @@ contract BumperBalls is EIP712, Ownable2Step, ReentrancyGuard {
     /// @dev Sends a share of the cut; if the wallet refuses it, it's kept as a balance instead.
     function _payFee(bytes32 matchId, address to, uint256 amount) internal {
         if (amount == 0) return;
-        (bool ok,) = to.call{value: amount, gas: FEE_PUSH_GAS}("");
+        emit FeePaid(matchId, to, amount, _push(to, amount));
+    }
+
+    /// @dev Pays `to` with limited gas, or keeps it as a withdrawable balance if the wallet refuses.
+    function _push(address to, uint256 amount) internal returns (bool ok) {
+        (ok,) = to.call{value: amount, gas: PUSH_GAS}("");
         if (!ok) balances[to] += amount;
-        emit FeePaid(matchId, to, amount, ok);
+    }
+
+    function _stale(Match storage m) internal view returns (bool) {
+        return (m.status == Status.Open && block.timestamp >= m.joinDeadline)
+            || (m.status == Status.Full && block.timestamp > m.settleDeadline)
+            || m.status == Status.Cancelled;
+    }
+
+    /// @dev Pays back every player who hasn't had their stake back yet. Callers set the status first.
+    function _refundEveryone(bytes32 matchId, Match storage m) internal {
+        uint256 n = m.playerCount;
+        uint256 amount = m.entryFee;
+        for (uint256 i; i < n; ++i) {
+            address p = m.players[i];
+            if (refunded[matchId][p]) continue;
+            refunded[matchId][p] = true;
+            emit Refunded(matchId, p, amount);
+            _push(p, amount);
+        }
     }
 
     function _setSettleTimeout(uint64 settleTimeout_) internal {

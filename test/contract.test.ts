@@ -158,10 +158,12 @@ test("4-player match, anyone can submit the result", async () => {
   const id = newMatchId();
   const jd = (await now()) + 600n;
   for (const p of [alice, bob, carol, dave]) await join(p, id, { joinDeadline: jd, maxPlayers: 4 });
+  const c0 = await ethOf(carol.address);
   await call(owner, "settle", [id, carol.address, await result(id, carol.address)]);
-  assert.equal(await balanceIn(carol.address), (FEE * 4n * 95n) / 100n);
-  await call(carol, "withdraw", []);
+  // the prize goes straight to the winner's wallet, nothing waits in the contract
+  assert.equal((await ethOf(carol.address)) - c0, (FEE * 4n * 95n) / 100n);
   assert.equal(await balanceIn(carol.address), 0n);
+  await rejects(call(carol, "withdraw", []), "NothingToWithdraw");
 });
 
 test("rejects forged tickets, wrong fee, wrong params, double join, and other players' tickets", async () => {
@@ -242,15 +244,52 @@ test("unsettled full match: everyone refunds after settle timeout, and late resu
   assert.equal((await getMatch(id)).status, MatchStatus.Cancelled);
 });
 
-test("server-cancelled match (zero winner) credits everyone their stake", async () => {
+test("server-cancelled match (zero winner) sends everyone their stake back", async () => {
   const id = newMatchId();
   const jd = (await now()) + 600n;
   await join(alice, id, { joinDeadline: jd });
   await join(bob, id, { joinDeadline: jd });
-  const a0 = await balanceIn(alice.address);
+  const a0 = await ethOf(alice.address);
   await call(bob, "settle", [id, zeroAddress, await result(id, zeroAddress)]);
-  assert.equal(await balanceIn(alice.address), a0 + FEE);
+  assert.equal((await ethOf(alice.address)) - a0, FEE);
+  assert.equal(await balanceIn(alice.address), 0n);
   await rejects(call(alice, "refund", [id]), "NotRefundable"); // no double refund
+});
+
+test("refundAll: anyone can send stale matches' stakes back, once, only to the players", async () => {
+  // unfilled match
+  const id = newMatchId();
+  const jd = (await now()) + 60n;
+  await join(alice, id, { joinDeadline: jd, maxPlayers: 3 });
+  await join(bob, id, { joinDeadline: jd, maxPlayers: 3 });
+  await rejects(call(carol, "refundAll", [id]), "NotRefundable");
+  await testClient.increaseTime({ seconds: 61 });
+  await testClient.mine({ blocks: 1 });
+  await call(alice, "refund", [id]); // alice took hers already
+  const a0 = await ethOf(alice.address);
+  const b0 = await ethOf(bob.address);
+  await call(carol, "refundAll", [id]);
+  assert.equal(await ethOf(alice.address), a0); // no double refund
+  assert.equal((await ethOf(bob.address)) - b0, FEE);
+  await call(carol, "refundAll", [id]); // nothing left, pays nobody
+  assert.equal((await ethOf(bob.address)) - b0, FEE);
+  assert.equal((await getMatch(id)).status, MatchStatus.Cancelled);
+
+  // full match the server never settled
+  const id2 = newMatchId();
+  const jd2 = (await now()) + 600n;
+  await join(alice, id2, { joinDeadline: jd2 });
+  await join(bob, id2, { joinDeadline: jd2 });
+  await rejects(call(carol, "refundAll", [id2]), "NotRefundable");
+  await testClient.increaseTime({ seconds: Number(SETTLE_TIMEOUT) + 1 });
+  await testClient.mine({ blocks: 1 });
+  const a1 = await ethOf(alice.address);
+  const b1 = await ethOf(bob.address);
+  await call(carol, "refundAll", [id2]);
+  assert.equal((await ethOf(alice.address)) - a1, FEE);
+  assert.equal((await ethOf(bob.address)) - b1, FEE);
+  await rejects(call(alice, "refund", [id2]), "NotRefundable");
+  await rejects(call(carol, "refundAll", [newMatchId()]), "NotRefundable");
 });
 
 test("admin changes don't affect running matches; fee cap and pause hold", async () => {
@@ -268,13 +307,15 @@ test("admin changes don't affect running matches; fee cap and pause hold", async
   await join(bob, id, { joinDeadline: jd });
   // the new signer can't settle the old match
   await rejects(call(alice, "settle", [id, alice.address, await result(id, alice.address, rogue)]), "BadSignature");
-  const fs0 = await ethOf(feeSink.address);
-  await call(alice, "settle", [id, alice.address, await result(id, alice.address)]);
-  assert.equal((await ethOf(feeSink.address)) - fs0, (FEE * 2n * 5n) / 100n); // still 5%
   await rejects(call(alice, "setPaused", [true]), "OwnableUnauthorizedAccount");
   await call(owner, "setPaused", [true]);
   await rejects(join(alice, newMatchId(), { joinDeadline: jd, by: rogue }), "IsPaused");
-  await call(alice, "withdraw", []); // withdrawals still work while paused
+  // settling and paying out still work while paused
+  const fs0 = await ethOf(feeSink.address);
+  const a0 = await ethOf(alice.address);
+  await call(alice, "settle", [id, alice.address, await result(id, alice.address)]);
+  assert.equal((await ethOf(feeSink.address)) - fs0, (FEE * 2n * 5n) / 100n); // still 5%
+  assert.ok((await ethOf(alice.address)) > a0);
   await call(owner, "setPaused", [false]);
   await call(owner, "setSigner", [signer.address]);
   await call(owner, "setFee", [500, feeSink.address, feeSink.address, 10_000]);

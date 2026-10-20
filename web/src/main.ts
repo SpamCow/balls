@@ -16,6 +16,8 @@ type Config = {
   rpcUrl: string;
   explorer: string;
   contract: Address;
+  /** Earlier contract versions; players can still withdraw anything left in them. */
+  oldContracts?: Address[];
   walletConnectProjectId: string | null;
   privyAppId: string | null;
   bets: { presets: string[]; min: string; max: string };
@@ -373,6 +375,12 @@ async function renderMine() {
     const bal = (await pub.readContract({ address: cfg.contract, abi: bumperBallsAbi, functionName: "balances", args: [account] })) as bigint;
     const rows: string[] = [];
     if (bal > 0n) rows.push(`<div class="row"><span>Ready to withdraw: <b>${eth(bal)}</b></span><button class="btn small" data-act="withdraw">Withdraw</button></div>`);
+    // anything still sitting in an earlier version of the game's contract
+    for (const old of cfg.oldContracts ?? []) {
+      const left = await pub.readContract({ address: old, abi: bumperBallsAbi, functionName: "balances", args: [account] }).catch(() => 0n);
+      if ((left as bigint) > 0n)
+        rows.push(`<div class="row"><span>Left from an earlier version of the game: <b>${eth(left as bigint)}</b></span><button class="btn small" data-act="withdraw" data-contract="${old}">Withdraw</button></div>`);
+    }
     const now = Date.now() / 1000;
     for (const id of myMatches()) {
       const m = (await pub.readContract({ address: cfg.contract, abi: bumperBallsAbi, functionName: "getMatch", args: [id as Hex] })) as any;
@@ -407,21 +415,21 @@ async function renderMine() {
     }
     box.innerHTML = rows.length ? rows.join("") : `<p class="muted">No matches yet.</p>`;
     box.querySelectorAll<HTMLButtonElement>("button[data-act]").forEach((b) => {
-      b.onclick = () => contractAction(b.dataset.act!, b.dataset.id as Hex | undefined);
+      b.onclick = () => contractAction(b.dataset.act!, b.dataset.id as Hex | undefined, b.dataset.contract as Address | undefined);
     });
   } catch (e) {
     box.innerHTML = `<p class="muted">Couldn't read the contract: ${esc(errMsg(e))}</p>`;
   }
 }
 
-async function contractAction(act: string, id?: Hex) {
+async function contractAction(act: string, id?: Hex, contract: Address = cfg.contract) {
   if (act === "open" && id) return openRoom(id);
   try {
     const { provider: p, account: a } = await requireWallet();
     const { wallet, pub } = clients(p, a, chain);
     const args: any = act === "withdraw" ? [] : [id];
     const fn = act as "withdraw" | "refund" | "leave";
-    const { request } = await pub.simulateContract({ account: a, address: cfg.contract, abi: bumperBallsAbi, functionName: fn, args });
+    const { request } = await pub.simulateContract({ account: a, address: contract, abi: bumperBallsAbi, functionName: fn, args });
     const hash = await wallet.writeContract(request);
     toast("Transaction sent…");
     await pub.waitForTransactionReceipt({ hash });
@@ -1079,10 +1087,12 @@ function showResult() {
   let html = "";
   if (r.winnerSeat === null) {
     html = room.mode === "paid" ? `<h2>No winner</h2><p>Nobody played, so everyone gets their entry back.</p>` : `<h2>It's a draw</h2>`;
-    if (room.mode === "paid" && room.you !== null && r.sig) html += `<button class="btn" id="claim">Get my ${eth(room.entryFee!)} back</button>`;
+    if (room.mode === "paid" && room.you !== null && r.sig)
+      html += `<p class="muted">Your ${eth(room.entryFee!)} is on its way back to your wallet.</p><button class="btn small ghost" id="claim">Not there in a minute? Get it now</button>`;
   } else if (youWon) {
     html = `<h2>🏆 You win!</h2>`;
-    if (room.mode === "paid" && r.sig) html += `<p>You won ${eth((pot * 95n) / 100n)}.</p><button class="btn" id="claim">Claim ${eth((pot * 95n) / 100n)}</button>`;
+    if (room.mode === "paid" && r.sig)
+      html += `<p>You won ${eth((pot * 95n) / 100n)}. It's on its way to your wallet.</p><button class="btn small ghost" id="claim">Not there in a minute? Claim it now</button>`;
   } else {
     html = `<h2>${esc(seatName(r.winnerSeat))} wins</h2>`;
     if (room.mode === "paid") html += `<p class="muted">Better luck next round.</p>`;
