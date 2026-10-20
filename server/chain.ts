@@ -59,19 +59,38 @@ export function signResult(env: Env, matchId: Hex, winner: Address) {
  * a valid result signature, so this only pays gas. Returns the tx hash, or null
  * if the match no longer needs settling.
  */
-export async function settleMatch(env: Env, matchId: Hex, winner: Address, sig: Hex): Promise<Hex | null> {
+// Every transaction from the deployer key goes through here one at a time, so
+// two of them never race for the same nonce.
+let deployerQueue: Promise<unknown> = Promise.resolve();
+export function deployerTx<T>(fn: () => Promise<T>): Promise<T> {
+  const run = deployerQueue.then(fn, fn);
+  deployerQueue = run.catch(() => {});
+  return run;
+}
+
+export function deployerClients(env: Env) {
   const chainId = Number(env.CHAIN_ID);
   const chain = { id: chainId, name: `chain-${chainId}`, nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: [rpcUrl(env)] } } } as const;
   const account = privateKeyToAccount(env.DEPLOYER_KEY as Hex);
-  const pub = createPublicClient({ chain, transport: http(rpcUrl(env), { retryCount: 2 }) });
-  const wallet = createWalletClient({ account, chain, transport: http(rpcUrl(env), { retryCount: 2 }) });
+  return {
+    account,
+    pub: createPublicClient({ chain, transport: http(rpcUrl(env), { retryCount: 2 }) }),
+    wallet: createWalletClient({ account, chain, transport: http(rpcUrl(env), { retryCount: 2 }) }),
+  };
+}
+
+export async function settleMatch(env: Env, matchId: Hex, winner: Address, sig: Hex): Promise<Hex | null> {
+  const { account, pub, wallet } = deployerClients(env);
   const address = getAddress(env.CONTRACT_ADDRESS);
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
-      if ((await readMatch(env, matchId)).status !== MatchStatus.Full) return null; // claimed or refunded already
-      const { request } = await pub.simulateContract({ account, address, abi: bumperBallsAbi, functionName: "settle", args: [matchId, winner, sig] });
-      const hash = await wallet.writeContract(request);
-      await pub.waitForTransactionReceipt({ hash });
+      const hash = await deployerTx(async () => {
+        if ((await readMatch(env, matchId)).status !== MatchStatus.Full) return null; // claimed or refunded already
+        const { request } = await pub.simulateContract({ account, address, abi: bumperBallsAbi, functionName: "settle", args: [matchId, winner, sig] });
+        const h = await wallet.writeContract(request);
+        await pub.waitForTransactionReceipt({ hash: h });
+        return h;
+      });
       return hash;
     } catch (e) {
       if (attempt === 4) throw e;

@@ -35,6 +35,11 @@ const BOT_LEVEL = 0.75;
 /** Persists what a restart must not lose: paid matches still in play. */
 export interface Persist {
   activePaid(matchId: string, active: boolean): void;
+  /** Count a finished match toward a signed-in player's record. */
+  record(address: Address, won: boolean, prizeWei: bigint): void;
+  /** A finished match was settled on-chain by the server. */
+  settled(): void;
+  nameOf(address: Address): string | null;
 }
 
 export class Room {
@@ -205,7 +210,8 @@ export class Room {
       joinDeadline: cfg.joinDeadline,
       phase: this.phase,
       seats: this.seats,
-      names: this.names,
+      // a signed-in player always shows under their username
+      names: this.seats.map((a, i) => (a && !a.startsWith("guest:") && this.persist.nameOf(a as Address)) || this.names[i] || ""),
       host: cfg.mode === "friends" ? this.hostSeat : null,
       round: this.round,
       bots: [...this.bots],
@@ -330,13 +336,24 @@ export class Room {
       this.persist.activePaid(cfg.matchId, false);
       const result = sig;
       settleMatch(this.env, cfg.matchId as Hex, winner, result)
-        .then((hash) => hash && log(`settled ${cfg.matchId} in ${hash}`))
+        .then((hash) => {
+          if (hash) log(`settled ${cfg.matchId} in ${hash}`);
+          this.persist.settled();
+        })
         .catch((e) => log(`couldn't settle ${cfg.matchId}: ${(e as Error).message.split("\n")[0]}`));
     } else if (winnerSeat !== null && !this.bots.has(winnerSeat)) {
       const s = this.seats[winnerSeat];
       winner = (s && !s.startsWith("guest:") ? s : zeroAddress) as Address;
     }
     this.result = { winnerSeat, winner, sig };
+    if (winnerSeat !== null) {
+      const pot = cfg.entryFee ? BigInt(cfg.entryFee) * BigInt(cfg.maxPlayers) : 0n;
+      this.seats.forEach((s, i) => {
+        if (!s || s.startsWith("guest:") || this.bots.has(i)) return;
+        const won = i === winnerSeat;
+        this.persist.record(s as Address, won, won ? (pot * 95n) / 100n : 0n);
+      });
+    }
     this.phase = "over";
     this.startsAt = 0;
     this.lastActive = Date.now();

@@ -14,6 +14,7 @@
       <div class="brand"><span class="logo"></span>Bumper Balls</div>
       <div class="top-right">
         <span id="net" class="pill net"></span>
+        <button id="mute-btn" class="mute-btn" type="button"></button>
         <button id="wallet-btn" class="btn">Connect wallet</button>
       </div>
     </header>
@@ -42,6 +43,9 @@
       <h3>Your matches</h3>
       <section id="mine" class="panel"></section>
 
+      <h3>Top players</h3>
+      <section id="leaders" class="panel"><p class="muted">No ranked players yet. Sign in, pick a username and win a match to get on the board.</p></section>
+
       <section class="how panel">
         <h3>How it's kept fair</h3>
         <ul>
@@ -59,9 +63,9 @@
       <p><a href="#" id="fees-back">← Back to the game</a></p>
       <h2>House cut</h2>
       <section class="panel">
-        <p class="muted small">The 5% from every paid match is held in the contract for the fee wallet. Only that wallet can collect it, so connect it here with a browser wallet such as MetaMask or Rabby.</p>
-        <div class="acct-bal"><span class="muted small">Fee wallet</span><code id="fee-addr" class="mono small"></code></div>
-        <div class="acct-bal"><span class="muted small">Ready to collect</span><b id="fee-bal">…</b></div>
+        <p id="fee-intro" class="muted small"></p>
+        <div class="acct-bal"><span class="muted small">Fee wallet</span><code id="fee-addr" class="mono small" style="text-align:right"></code></div>
+        <div class="acct-bal"><span class="muted small">Waiting to be paid</span><b id="fee-bal">…</b></div>
         <div id="fee-actions" style="margin-top:14px"></div>
       </section>
     </main>
@@ -97,6 +101,8 @@
 
     <dialog id="account-dialog">
       <form method="dialog" class="dialog-head"><h3 id="acct-label">Your wallet</h3><button class="x" aria-label="Close">×</button></form>
+      <div class="profile-row"><span id="acct-name" class="uname">No username yet</span><button type="button" id="acct-rename" class="btn small ghost">Pick a username</button></div>
+      <div class="stats"><div><b id="st-wins">0</b><span>Wins</span></div><div><b id="st-losses">0</b><span>Losses</span></div><div><b id="st-rate">–</b><span>Win rate</span></div><div><b id="st-earned">0</b><span>ETH won</span></div></div>
       <div class="acct-bal"><span class="muted small">Balance</span><b id="acct-bal">…</b></div>
       <p id="acct-need" class="note" hidden></p>
       <h4>Add ETH</h4>
@@ -108,6 +114,16 @@
         <div class="inline"><input id="out-amt" placeholder="Amount in ETH" inputmode="decimal" required /><button type="button" id="out-max" class="btn small ghost">Max</button><button class="btn small">Send</button></div>
       </form>
       <div class="acts" style="margin-top:14px"><a id="acct-link" class="muted small" target="_blank" rel="noopener">View on explorer</a><button type="button" id="sign-out" class="btn small ghost">Sign out</button></div>
+    </dialog>
+
+    <dialog id="name-dialog">
+      <form id="name-form">
+        <h3>Pick a username</h3>
+        <p class="muted small">This is how other players see you, and it's tied to your sign-in. 3 to 16 letters, numbers or underscores.</p>
+        <input id="uname" maxlength="16" autocomplete="nickname" spellcheck="false" required />
+        <p id="uname-err" class="note" hidden></p>
+        <div class="acts" style="margin-top:14px"><button class="btn" id="uname-save">Save</button><button type="button" class="btn ghost" id="uname-later">Later</button></div>
+      </form>
     </dialog>
 
     <dialog id="money-dialog">

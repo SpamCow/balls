@@ -272,3 +272,32 @@ test("admin changes don't affect running matches; fee cap and pause hold", async
   await call(owner, "setSigner", [signer.address]);
   await call(owner, "setFee", [500, feeSink.address]);
 });
+
+test("fee splitter pays the house cut 69/31 and can't be re-entered or redirected", async () => {
+  const sp = JSON.parse(fs.readFileSync("build/FeeSplitter.json", "utf8"));
+  const a = privateKeyToAccount(generatePrivateKey()).address;
+  const b = privateKeyToAccount(generatePrivateKey()).address;
+  const dh = await wallet(owner).deployContract({ abi: sp.abi, bytecode: sp.bytecode, args: [addr, a, b, 6900] });
+  const splitter = (await pub.waitForTransactionReceipt({ hash: dh })).contractAddress!;
+  await rejects(
+    wallet(owner).deployContract({ abi: sp.abi, bytecode: sp.bytecode, args: [addr, a, zeroAddress, 6900] }).then((h) => pub.waitForTransactionReceipt({ hash: h })),
+    "BadConfig|revert",
+  );
+  await call(owner, "setFee", [500, splitter]);
+  const id = newMatchId();
+  const jd = (await now()) + 600n;
+  await join(alice, id, { joinDeadline: jd });
+  await join(bob, id, { joinDeadline: jd });
+  await call(carol, "settle", [id, alice.address, await result(id, alice.address)]);
+  const fee = (FEE * 2n * 500n) / 10_000n;
+  assert.equal(await balanceIn(splitter), fee);
+  // anyone can trigger the payout; the money only ever goes to the two fixed wallets
+  const ph = await wallet(dave).writeContract({ address: splitter, abi: sp.abi, functionName: "payout", args: [] });
+  await pub.waitForTransactionReceipt({ hash: ph });
+  assert.equal(await pub.getBalance({ address: a }), (fee * 6900n) / 10_000n);
+  assert.equal(await pub.getBalance({ address: b }), fee - (fee * 6900n) / 10_000n);
+  assert.equal(await balanceIn(splitter), 0n);
+  // a second payout with nothing pending is a harmless no-op
+  await pub.waitForTransactionReceipt({ hash: await wallet(dave).writeContract({ address: splitter, abi: sp.abi, functionName: "payout", args: [] }) });
+  await call(owner, "setFee", [500, feeSink.address]);
+});

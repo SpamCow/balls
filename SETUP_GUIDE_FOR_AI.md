@@ -203,13 +203,16 @@ Tell the owner: Privy holds the login and secures the players' built-in wallet k
    |---|---|
    | `CHAIN_ID` | `4663` |
    | `ALLOW_MAINNET` | `yes` |
-   | `FEE_RECIPIENT` | the owner's own wallet address (starts with `0x`). The 5% fee goes here, and it can't be changed after the contract is set up, so double-check it. |
+   | `FEE_RECIPIENT` | the owner's own wallet address (starts with `0x`). The 5% fee goes here unless `FEE_SPLIT` is set (below). |
+   | `FEE_SPLIT` (optional) | splits the 5% between two wallets, for example `0xWalletA:69,0xWalletB:31` (the first wallet gets 69%). |
    | `RPC_URL` (recommended) | a Robinhood Chain mainnet RPC address from a provider such as Alchemy. The free public one is rate-limited. |
 
    Do not touch `SERVER_SECRET`.
 2. Save and restart the server (VPS: `sudo systemctl restart bumper-balls`).
 3. Open the site. The section now says **Play for ETH** and shows a deployer address. Send about **0.005 ETH on Robinhood Chain mainnet** (not Ethereum mainnet or another network) to that address. This pays the gas for setting up the contract; leftovers stay in that deployer address.
 4. Within about a minute the bet buttons unlock. The page's contract link opens the contract on the Robinhood Chain explorer.
+
+**Splitting the house cut (optional).** With `FEE_SPLIT=0xWalletA:69,0xWalletB:31` set, the server deploys a small splitter contract once (paid from the deployer) and points the house cut at it. When at least 0.002 ETH has piled up it pays both wallets automatically in their shares; the owner can also press **Pay out now** on the **Collect the house cut** page (`/#fees`). Anything collected for `FEE_RECIPIENT` before the split was turned on stays collectable on that same page with the old wallet. To change the split later, edit `FEE_SPLIT` and restart; a new splitter is set up.
 
 **Collecting the house cut.** The 5% from each paid match is held in the contract for the `FEE_RECIPIENT` wallet; it is not sent there by itself. The server settles every finished match on its own (paying a tiny gas fee from the deployer address), so the cut is counted even if the winner never presses Claim. To collect it, the owner opens the game site, clicks **Collect the house cut** at the bottom of the home page (or goes to `https://<their game address>/#fees`), connects the fee wallet with a browser wallet such as MetaMask or Rabby, and presses **Collect**. Keep a little ETH in the deployer address (0.002 is plenty for many matches) so the server can keep settling; the address shows in the server log and was the one funded above.
 
@@ -253,11 +256,12 @@ Avoid updating while a paid match is being played: the server refunds that match
 | `SERVER_SECRET` | none | Required. 32+ random characters. Never change it, and keep a private copy. |
 | `CHAIN_ID` | `46630` (testnet) | `4663` is Robinhood Chain mainnet |
 | `ALLOW_MAINNET` | not set | Must be `yes` for real ETH |
-| `FEE_RECIPIENT` | the deployer address | Required on mainnet; fixed once the contract is set up |
+| `FEE_RECIPIENT` | the deployer address | Required on mainnet; gets the 5% house cut |
+| `FEE_SPLIT` | not set | Optional, e.g. `0xA:69,0xB:31`: splits the house cut between two wallets, paid out automatically |
 | `RPC_URL` | public RPC | A dedicated provider is more reliable |
 | `PRIVY_APP_ID` | not set | Turns on email/Google sign-in with built-in wallets (Step 4a) |
 | `WALLETCONNECT_PROJECT_ID` | not set | Only used without Privy, for connecting outside wallets by QR |
 | `CONTRACT_ADDRESS` | worked out automatically | Only set if a contract was deployed by hand |
-| `DATA_DIR` | `/var/lib/bumper-balls` on a VPS, `/data` on Render | Remembers paid matches in play across restarts |
+| `DATA_DIR` | `/var/lib/bumper-balls` on a VPS, `/data` on Render | Remembers paid matches in play, usernames and win/loss stats (`profiles.json`) across restarts; back it up |
 | `PORT` | `8787` | Leave alone unless the host says otherwise (cPanel sets it itself) |
 | `TRUST_PROXY` | `1` on a VPS | Set when Caddy or the host sits in front, so rate limits see players' real addresses |

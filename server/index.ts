@@ -11,6 +11,8 @@ import { signerAddress, rpcUrl, signTicket } from "./chain";
 import { loadEnv } from "./env";
 import { Room, type Config } from "./room";
 import { ensureContract, type ContractStatus } from "./deploy";
+import { createProfiles } from "./profiles";
+import { createFees } from "./fees";
 
 const env = loadEnv();
 const PORT = Number(process.env.PORT || 8787);
@@ -28,11 +30,16 @@ let currentPractice = "";
 // paid matches in play survive a restart only as "call it off": remember them on disk
 const activeFile = DATA_DIR ? path.join(DATA_DIR, "active-paid.json") : "";
 const activePaid = new Set<string>(activeFile && fs.existsSync(activeFile) ? JSON.parse(fs.readFileSync(activeFile, "utf8")) : []);
+const profiles = createProfiles(DATA_DIR);
+const fees = createFees(env);
 const persist = {
   activePaid(id: string, on: boolean) {
     on ? activePaid.add(id) : activePaid.delete(id);
     if (activeFile) fs.writeFileSync(activeFile, JSON.stringify([...activePaid]));
   },
+  record: (address: Address, won: boolean, prizeWei: bigint) => profiles.record(address, won, prizeWei),
+  settled: () => fees.afterSettle(),
+  nameOf: (address: Address) => profiles.name(address),
 };
 
 function makeRoom(cfg: Config) {
@@ -96,7 +103,10 @@ setInterval(() => {
 let contract: ContractStatus = { state: "checking", address: getAddress(env.CONTRACT_ADDRESS) };
 ensureContract(env, (s) => {
   contract = s;
-  if (s.state === "live") log(`escrow live at ${s.address}`);
+  if (s.state === "live") {
+    log(`escrow live at ${s.address}`);
+    fees.setup();
+  }
 });
 
 // restore paid matches that were in play when the server stopped
@@ -163,6 +173,21 @@ const server = http.createServer(async (req, res) => {
       const r = await login(env, req.headers.host || "", await readBody(req));
       return sendJson(res, "error" in r ? 401 : 200, r);
     }
+    if (p === "/api/profile") {
+      const address = await verifyToken(env, req.headers.authorization?.replace(/^Bearer /, ""));
+      if (!address) return sendJson(res, 401, { error: "sign in first" });
+      if (req.method === "POST") {
+        const err = profiles.setName(address, (await readBody(req))?.name);
+        if (err) return sendJson(res, 400, { error: err });
+      }
+      return sendJson(res, 200, profiles.get(address));
+    }
+    if (p === "/api/leaderboard") return sendJson(res, 200, profiles.leaderboard());
+    if (p === "/api/fees" && req.method === "GET") return sendJson(res, 200, fees.status());
+    if (p === "/api/fees/payout" && req.method === "POST") {
+      const r = await fees.manualPayout();
+      return sendJson(res, r.status, r.body);
+    }
     if (p === "/api/queue" && req.method === "POST") {
       const address = await verifyToken(env, req.headers.authorization?.replace(/^Bearer /, ""));
       if (!address) return sendJson(res, 401, { error: "sign in first" });
@@ -216,6 +241,7 @@ server.on("upgrade", async (req, socket, head) => {
   const address = await verifyToken(env, url.searchParams.get("token"));
   if (room.cfg.mode === "paid" && !address) return reject(401, "Unauthorized");
   const name =
+    (address && profiles.name(address)) ||
     String(url.searchParams.get("name") || "")
       .replace(/[^\p{L}\p{N} _.'-]/gu, "")
       .trim()

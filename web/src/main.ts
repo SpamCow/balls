@@ -1,5 +1,5 @@
 import "./style.css";
-import { createPublicClient, http, defineChain, formatEther, getAddress, zeroAddress, type Address, type Chain, type EIP1193Provider, type Hex } from "viem";
+import { createPublicClient, http, defineChain, formatEther, parseEther, getAddress, zeroAddress, type Address, type Chain, type EIP1193Provider, type Hex } from "viem";
 import { bumperBallsAbi } from "../../shared/abi";
 import { COLORS, type Tier } from "../../shared/config";
 import { SNAP_STRIDE } from "../../shared/physics";
@@ -8,6 +8,7 @@ import { discoverWallets, walletOptions, ensureChain, clients } from "./wallet";
 import type { PrivyApi, PrivyState } from "./privy";
 import { ArenaView } from "./render";
 import { createControls } from "./input";
+import * as sfx from "./sound";
 
 type Config = {
   chainId: number;
@@ -55,6 +56,8 @@ let account: Address | null = null;
 let privy: PrivyApi | null = null;
 let privyState: PrivyState | null = null;
 let privyProblem: string | null = null;
+type Profile = { name: string | null; wins: number; losses: number; earnedWei: string };
+let profile: Profile | null = null;
 let ws: WebSocket | null = null;
 let room: RoomState | null = null;
 let view: ArenaView;
@@ -105,7 +108,7 @@ function txLink(hash: string) {
 
 function renderWallet() {
   const btn = $("#wallet-btn");
-  btn.textContent = account ? (privyState?.label ?? short(account)) : privy || cfg.privyAppId ? "Sign in" : "Connect wallet";
+  btn.textContent = account ? (profile?.name ?? privyState?.label ?? short(account)) : privy || cfg.privyAppId ? "Sign in" : "Connect wallet";
   btn.classList.toggle("connected", !!account);
   $("#net").textContent = cfg.chainName ?? `Chain ${cfg.chainId}`;
 }
@@ -191,9 +194,81 @@ function onPrivy(s: PrivyState) {
   privyState = s;
   account = s.account;
   provider = s.provider;
+  if (was !== account) profile = null;
   renderWallet();
   if (was !== account && !$("#home").hidden) renderHome();
   if (!was && account && s.builtIn) refreshAccount();
+  if (account && was !== account) loadProfile(true);
+}
+
+// ------------------------------------------------------------------ profile
+
+async function loadProfile(askForName = false) {
+  try {
+    const token = await session();
+    const r = await fetch("/api/profile", { headers: { authorization: `Bearer ${token}` } });
+    if (!r.ok) return;
+    profile = await r.json();
+    renderProfile();
+    if (askForName && !profile!.name) openNameDialog();
+  } catch (e) {
+    // a cancelled sign-in signature just leaves the player without a username for now
+    if (!/cancelled/i.test(errMsg(e))) console.warn("profile:", e);
+  }
+}
+
+function renderProfile() {
+  renderWallet();
+  const p = profile;
+  $("#acct-name").textContent = p?.name ?? "No username yet";
+  $("#acct-rename").textContent = p?.name ? "Change" : "Pick a username";
+  $("#st-wins").textContent = String(p?.wins ?? 0);
+  $("#st-losses").textContent = String(p?.losses ?? 0);
+  const played = (p?.wins ?? 0) + (p?.losses ?? 0);
+  $("#st-rate").textContent = played ? `${Math.round(((p?.wins ?? 0) / played) * 100)}%` : "–";
+  $("#st-earned").textContent = Number(formatEther(BigInt(p?.earnedWei ?? "0"))).toString();
+  const nick = $<HTMLInputElement>("#nick");
+  if (p?.name) {
+    nick.value = p.name;
+    nick.disabled = true;
+    nick.title = "Your username. Change it from your account.";
+  } else nick.disabled = false;
+}
+
+function openNameDialog() {
+  const d = $<HTMLDialogElement>("#name-dialog");
+  $<HTMLInputElement>("#uname").value = profile?.name ?? (store<string>("bb.nick") ?? "").replace(/[^A-Za-z0-9_]/g, "").slice(0, 16);
+  $("#uname-err").hidden = true;
+  if (!d.open) d.showModal();
+}
+
+async function saveName(e: Event) {
+  e.preventDefault();
+  const err = $("#uname-err");
+  try {
+    const token = await session();
+    const r = await fetch("/api/profile", { method: "POST", headers: { authorization: `Bearer ${token}` }, body: JSON.stringify({ name: $<HTMLInputElement>("#uname").value.trim() }) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error);
+    profile = j;
+    renderProfile();
+    $<HTMLDialogElement>("#name-dialog").close();
+    toast(`You're ${profile!.name} now.`, "ok");
+    renderLeaders();
+  } catch (x) {
+    err.textContent = errMsg(x);
+    err.hidden = false;
+  }
+}
+
+async function renderLeaders() {
+  try {
+    const rows = (await (await fetch("/api/leaderboard")).json()) as { name: string; wins: number; losses: number }[];
+    if (!rows.length) return;
+    $("#leaders").innerHTML = `<ol class="leaders">${rows
+      .map((r, i) => `<li class="${r.name === profile?.name ? "me" : ""}"><span class="rank">${i + 1}</span><span>${esc(r.name)}</span><span class="muted small">${r.wins}W · ${r.losses}L</span></li>`)
+      .join("")}</ol>`;
+  } catch {}
 }
 
 const GAS_ROOM = 50_000_000_000_000n; // 0.00005 ETH: far more than a Robinhood Chain transaction costs
@@ -202,9 +277,11 @@ async function balanceOf(a: Address) {
   return clients(provider!, a, chain).pub.getBalance({ address: a });
 }
 
+let lastBal: bigint | null = null;
 async function refreshAccount(need?: bigint) {
   if (!account) return;
   $("#acct-label").textContent = privyState?.label ?? "Your wallet";
+  renderProfile();
   $("#acct-addr").textContent = account;
   $("#acct-chain").textContent = cfg.chainName ?? `chain ${cfg.chainId}`;
   $("#acct-link").setAttribute("href", cfg.explorer ? `${cfg.explorer}/address/${account}` : "#");
@@ -212,6 +289,8 @@ async function refreshAccount(need?: bigint) {
   needEl.hidden = !need;
   try {
     const bal = await balanceOf(account);
+    if (lastBal !== null && bal > lastBal) sfx.coin(); // a deposit just landed
+    lastBal = bal;
     $("#acct-bal").textContent = eth(bal);
     if (need && bal < need) needEl.textContent = `You need ${eth(need - bal)} more for that match. Send it to the address below and it shows up here in a few seconds.`;
     else needEl.hidden = true;
@@ -259,6 +338,7 @@ async function cashOut(e: Event) {
 
 async function renderHome() {
   $("#fees").hidden = true;
+  renderLeaders();
   $("#home").hidden = false;
   $("#match").hidden = true;
   const tiers = $("#tiers");
@@ -507,6 +587,8 @@ function onRoomMessage(msg: any) {
       break;
     }
     case "start":
+      sfx.tick(true);
+      lastBeep = 0;
       setStatus("");
       $("#result").hidden = true;
       resetView = true;
@@ -520,8 +602,13 @@ function onRoomMessage(msg: any) {
     }
     case "ev":
       for (const e of msg.e) {
-        if (e.t === "bump") view.bump(e.a, e.b, e.force);
+        if (e.t === "bump") {
+          view.bump(e.a, e.b, e.force);
+          sfx.bump(e.force, e.a === room?.you || e.b === room?.you);
+        }
+        if (e.t === "dash" && e.seat === room?.you) sfx.dash();
         if (e.t === "out" && room) {
+          sfx.fall(e.seat === room.you);
           const name = seatName(e.seat);
           toast(e.seat === room.you ? "You fell off!" : `${name} fell off`);
         }
@@ -532,6 +619,7 @@ function onRoomMessage(msg: any) {
         room.result = msg;
         room.phase = "over";
         setTimeout(showResult, 900);
+        if (account) setTimeout(() => loadProfile(), 2500); // the new win or loss
       }
       break;
   }
@@ -580,6 +668,7 @@ function renderSeats() {
 }
 
 let countdownTimer: ReturnType<typeof setInterval> | null = null;
+let lastBeep = 0;
 function renderPhase() {
   if (!room) return;
   if (countdownTimer) clearInterval(countdownTimer);
@@ -589,12 +678,14 @@ function renderPhase() {
     if (room.mode === "paid") {
       const left = room.maxPlayers - room.seats.length;
       const mins = Math.max(0, Math.round(((room.joinDeadline ?? 0) - Date.now() / 1000) / 60));
+      const tier = cfg.tiers.find((t) => t.id === room!.tierId);
       setStatus(
         room.you === null
-          ? `Waiting for ${left} more player${left === 1 ? "" : "s"}…`
+          ? `Waiting for ${left} more player${left === 1 ? "" : "s"}…${tier ? ` <button class="btn small" id="link-join">Join for ${eth(tier.entryFeeWei)}</button>` : ""}`
           : `You're in. Waiting for ${left} more player${left === 1 ? "" : "s"}. If it doesn't fill in ~${mins} min, you can take your entry back.`,
       );
       $("#share").hidden = false;
+      if (tier) $("#link-join")?.addEventListener("click", () => joinPaid(tier));
     } else if (room.mode === "friends") {
       const n = room.seats.filter(Boolean).length;
       setStatus(
@@ -611,6 +702,8 @@ function renderPhase() {
     $("#share").hidden = true;
     const tick = () => {
       const s = Math.ceil((room!.startsAt - Date.now()) / 1000);
+      if (s > 0 && s !== lastBeep) sfx.tick();
+      lastBeep = s;
       setStatus(s > 0 ? `<span class="big">${s}</span>${room!.you === null ? "Spectating" : "Get ready! Knock everyone off."}` : "");
     };
     tick();
@@ -674,6 +767,38 @@ async function openFees() {
   $("#fees").hidden = false;
   const actions = $("#fee-actions");
   const pub = createPublicClient({ chain, transport: http(cfg.rpcUrl) });
+  let st: any = {};
+  try {
+    st = await (await fetch("/api/fees")).json();
+  } catch {}
+  if (st.mode === "split") {
+    $("#fee-intro").textContent = "The 5% from every paid match is split between two wallets automatically. It's paid out on its own once 0.002 ETH has built up, or right away with the button below.";
+    $("#fee-addr").innerHTML = st.split.map((x: any) => `${x.percent}% → ${esc(short(x.wallet))}`).join("<br>");
+    $("#fee-bal").textContent = eth(parseEther(String(st.pending)));
+    actions.innerHTML = `<button class="btn" id="fee-payout">Pay out now</button>`;
+    $("#fee-payout").onclick = async () => {
+      try {
+        const r = await fetch("/api/fees/payout", { method: "POST" });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error);
+        toast(j.hash ? "Paid out to both wallets." : "Nothing to pay out yet.", "ok");
+        if (j.hash) sfx.coin();
+      } catch (e) {
+        toast(errMsg(e), "error");
+      }
+      openFees();
+    };
+    if (st.earlier) {
+      const box = document.createElement("div");
+      box.style.marginTop = "18px";
+      box.innerHTML = `<p class="muted small">Fees from before the split, ${esc(eth(parseEther(String(st.earlier.owed))))}, are still waiting for the old fee wallet ${esc(short(st.earlier.wallet))}. Connect that wallet to collect them.</p>`;
+      actions.append(box);
+      const owed = (await pub.readContract({ address: cfg.contract, abi: bumperBallsAbi, functionName: "balances", args: [st.earlier.wallet] })) as bigint;
+      collectUi(box, getAddress(st.earlier.wallet), owed);
+    }
+    return;
+  }
+  $("#fee-intro").textContent = "The 5% from every paid match is held in the contract for the fee wallet. Only that wallet can collect it, so connect it here with a browser wallet such as MetaMask or Rabby.";
   let recipient: Address;
   let owed = 0n;
   try {
@@ -687,16 +812,22 @@ async function openFees() {
   }
   $("#fee-addr").textContent = recipient;
   $("#fee-bal").textContent = eth(owed);
+  actions.innerHTML = "";
+  collectUi(actions, recipient, owed);
+}
+
+/** Connect the given fee wallet with a browser wallet and collect what it's owed. */
+function collectUi(box: HTMLElement, recipient: Address, owed: bigint) {
   if (feeWallet && feeWallet.account.toLowerCase() === recipient.toLowerCase()) {
-    actions.innerHTML = owed > 0n ? `<button class="btn" id="fee-collect">Collect ${eth(owed)}</button>` : `<p class="muted">Nothing to collect yet. Fees show up here a moment after each paid match ends.</p>`;
+    const p = document.createElement("div");
+    p.innerHTML = owed > 0n ? `<button class="btn" id="fee-collect">Collect ${eth(owed)}</button>` : `<p class="muted">Nothing to collect yet. Fees show up here a moment after each paid match ends.</p>`;
+    box.append(p);
     $("#fee-collect")?.addEventListener("click", collectFees);
     return;
   }
   const opts = walletOptions(cfg.walletConnectProjectId, chain);
-  actions.innerHTML = feeWallet
-    ? `<p class="note">Connected ${esc(short(feeWallet.account))}, which isn't the fee wallet. Switch to ${esc(short(recipient))} in your wallet and connect again.</p>`
-    : "";
-  if (!opts.length) actions.innerHTML += `<p class="muted">No browser wallet found. Install MetaMask or Rabby, add the fee wallet to it, and reload this page.</p>`;
+  if (feeWallet) box.insertAdjacentHTML("beforeend", `<p class="note">Connected ${esc(short(feeWallet.account))}, which isn't the fee wallet. Switch to ${esc(short(recipient))} in your wallet and connect again.</p>`);
+  if (!opts.length) box.insertAdjacentHTML("beforeend", `<p class="muted">No browser wallet found. Install MetaMask or Rabby, add the fee wallet to it, and reload this page.</p>`);
   for (const o of opts) {
     const b = document.createElement("button");
     b.className = "wallet-opt";
@@ -712,7 +843,7 @@ async function openFees() {
         toast(errMsg(e), "error");
       }
     };
-    actions.append(b);
+    box.append(b);
   }
 }
 
@@ -726,6 +857,7 @@ async function collectFees() {
     toast("Collecting…");
     await pub.waitForTransactionReceipt({ hash });
     toast("Collected. The ETH is in the fee wallet.", "ok");
+    sfx.coin();
   } catch (e) {
     toast(errMsg(e), "error");
   }
@@ -737,12 +869,18 @@ function setStatus(html: string) {
   $("#status").hidden = !html;
 }
 
+let resultSound = "";
 function showResult() {
   if (!room?.result) return;
   const r = room.result;
   const el = $("#result");
   el.hidden = false;
   const youWon = r.winnerSeat !== null && r.winnerSeat === room.you;
+  const key = `${room.matchId}:${room.round}`;
+  if (key !== resultSound && room.you !== null && r.winnerSeat !== null) {
+    resultSound = key;
+    youWon ? sfx.win() : sfx.lose();
+  }
   const pot = room.entryFee ? BigInt(room.entryFee) * BigInt(room.maxPlayers) : 0n;
   let html = "";
   if (r.winnerSeat === null) {
@@ -780,6 +918,7 @@ async function claim() {
     toast("Claiming…");
     await pub.waitForTransactionReceipt({ hash });
     toast("Paid out to your wallet!", "ok");
+    sfx.coin();
     $("#claim")?.remove();
   } catch (e) {
     toast(errMsg(e), "error");
@@ -815,6 +954,17 @@ async function boot() {
   view.start();
   readControls = createControls($("#match"));
   discoverWallets(() => {});
+  sfx.unlockAudio();
+  const mute = $("#mute-btn");
+  const showMute = () => {
+    mute.textContent = sfx.isMuted() ? "🔇" : "🔊";
+    mute.setAttribute("aria-label", sfx.isMuted() ? "Turn sound on" : "Turn sound off");
+  };
+  mute.onclick = () => {
+    sfx.setMuted(!sfx.isMuted());
+    showMute();
+  };
+  showMute();
   $("#wallet-btn").onclick = openWalletPicker;
   if (cfg.privyAppId) {
     import("./privy")
@@ -826,6 +976,9 @@ async function boot() {
       });
   }
   $("#cashout-form").addEventListener("submit", cashOut);
+  $("#name-form").addEventListener("submit", saveName);
+  $("#uname-later").onclick = () => $<HTMLDialogElement>("#name-dialog").close();
+  $("#acct-rename").onclick = openNameDialog;
   $("#out-max").onclick = () => ($<HTMLInputElement>("#out-amt").value = "max");
   $("#acct-copy").onclick = async () => {
     try {
@@ -838,6 +991,8 @@ async function boot() {
   $("#sign-out").onclick = async () => {
     $<HTMLDialogElement>("#account-dialog").close();
     await privy?.logout();
+    profile = null;
+    renderProfile();
     account = null;
     provider = null;
     renderWallet();
@@ -890,6 +1045,14 @@ async function boot() {
     $("#fees").hidden = true;
     renderHome();
   };
+  const route = () => {
+    const hash = location.hash.slice(1);
+    if (hash === "fees") openFees();
+    else if (hash && hash !== room?.matchId) openRoom(hash);
+    else if (!hash) renderHome();
+  };
+  // a pasted invite link in an open tab only changes the hash
+  addEventListener("hashchange", route);
   const hash = location.hash.slice(1);
   if (hash === "fees") openFees();
   else if (hash) openRoom(hash);
