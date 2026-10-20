@@ -1,5 +1,5 @@
 // Deploys the escrow contract from the server's own deployer key the first
-// time that key has testnet ETH, so hosting needs no manual deploy step.
+// time that key has ETH, so hosting needs no manual deploy step.
 // The deployer's first contract always lands at the same address (nonce 0),
 // so the server knows its contract address before it exists.
 import { createPublicClient, createWalletClient, http, getAddress, formatEther, type Address, type Hex } from "viem";
@@ -45,9 +45,10 @@ export function ensureContract(env: Env, update: (s: ContractStatus) => void) {
       }
       const [balance, nonce] = await Promise.all([pub.getBalance({ address: account.address }), pub.getTransactionCount({ address: account.address })]);
       const base = { address, deployer: account.address, balance: formatEther(balance) };
-      if (!autoDeploy) return update({ ...base, state: "error", message: "No contract at CONTRACT_ADDRESS, and mainnet deploys are manual." });
+      if (!autoDeploy) return update({ ...base, state: "error", message: "Set ALLOW_MAINNET=yes to take real ETH." });
+      if (chainId === 4663 && !process.env.FEE_RECIPIENT) return update({ ...base, state: "error", message: "Set FEE_RECIPIENT to your wallet before the escrow deploys on mainnet." });
       if (nonce > 0) return update({ ...base, state: "error", message: "The deployer has already sent a transaction, so set CONTRACT_ADDRESS by hand." });
-      if (balance < MIN_BALANCE) return update({ ...base, state: "needs-funds", message: `Send at least ${formatEther(MIN_BALANCE)} testnet ETH to the deployer.` });
+      if (balance < MIN_BALANCE) return update({ ...base, state: "needs-funds", message: `Send at least ${formatEther(MIN_BALANCE)} ETH to the deployer.` });
       update({ ...base, state: "deploying" });
       const hash = await wallet.deployContract({
         abi: bumperBallsAbi,

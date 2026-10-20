@@ -198,7 +198,7 @@ async function renderHome() {
   const note = $("#paid-note");
   note.hidden = cfg.paid?.state === "live";
   if (cfg.paid?.state === "needs-funds")
-    note.innerHTML = `Paid matches open once the game's escrow is set up. It needs a little testnet ETH sent to <span class="mono">${esc(cfg.paid.deployer ?? "")}</span> (it has ${esc(cfg.paid.balance ?? "0")} now).`;
+    note.innerHTML = `Paid matches open once the game's escrow is set up. It needs a little ETH on ${esc(cfg.chainName ?? "the chain")} sent to <span class="mono">${esc(cfg.paid.deployer ?? "")}</span> (it has ${esc(cfg.paid.balance ?? "0")} now).`;
   else if (cfg.paid?.state === "deploying") note.textContent = "Setting up the escrow contract. Paid matches open in a minute.";
   else note.textContent = "Paid matches aren't open right now. Free play works.";
   await renderMine();
@@ -275,9 +275,22 @@ async function contractAction(act: string, id?: Hex) {
   renderMine();
 }
 
+function confirmRealMoney(): Promise<boolean> {
+  const d = $<HTMLDialogElement>("#money-dialog");
+  d.showModal();
+  return new Promise((resolve) => {
+    d.addEventListener("close", () => resolve(d.returnValue === "yes"), { once: true });
+  });
+}
+
 // -------------------------------------------------------------------- match
 
 async function joinPaid(tier: Tier, stale?: string): Promise<void> {
+  if (cfg.chainId === 4663 && !stale && !store<boolean>("bb.agreed")) {
+    const ok = await confirmRealMoney();
+    if (!ok) return;
+    store("bb.agreed", true);
+  }
   try {
     const token = await session();
     const { provider: p, account: a } = await requireWallet();
@@ -627,6 +640,11 @@ async function boot() {
       prompt("Copy this link", url);
     }
   };
+  const mainnet = cfg.chainId === 4663;
+  $("#paid-title").textContent = mainnet ? "Play for ETH" : "Play for testnet ETH";
+  $("#net-note").textContent = mainnet
+    ? "Entries are real ETH on Robinhood Chain. You must be 18 or older, and only play where paid skill games are legal."
+    : "Testnet only. Testnet ETH has no value.";
   $("#contract-link").setAttribute("href", cfg.explorer ? `${cfg.explorer}/address/${cfg.contract}` : "#");
   renderWallet();
   const hash = location.hash.slice(1);

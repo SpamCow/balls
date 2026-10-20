@@ -19,7 +19,7 @@ Everyone pays the same entry fee into an escrow contract; the last ball on the s
 
 - **Play with friends (free):** create a room, send the 5-character code or invite link, and the host presses Start. Empty seats can be filled with bots.
 - **Quick game vs bots (free):** drops you into a practice match; anyone who joins in the first few seconds plays too.
-- **Testnet ETH matches:** 2- or 4-player matches with an entry fee held in the escrow contract.
+- **ETH matches:** 2- or 4-player matches with an entry fee held in the escrow contract (testnet by default, real ETH on mainnet when enabled).
 
 The platform starts shrinking 3 seconds in and keeps closing until 70 seconds, so every match ends. A ball drops once most of it hangs past the rim.
 
@@ -64,10 +64,11 @@ Free play works as soon as it's up. To open paid matches, send about 0.005 Robin
 |---|---|---|
 | `SERVER_SECRET` | (required in production) | 16+ characters. Changing it changes every key, so keep it fixed |
 | `CHAIN_ID` | `46630` | `4663` is Robinhood Chain mainnet: no auto-deploy there unless `ALLOW_MAINNET=yes` |
+| `ALLOW_MAINNET` | none | must be `yes` before the escrow deploys on mainnet |
 | `RPC_URL` | public RPC for the chain | |
 | `CONTRACT_ADDRESS` | deployer's first contract | set only if you deployed the escrow yourself |
 | `FEE_RECIPIENT` | deployer | your wallet for the 5% fee, fixed when the escrow deploys |
 | `WALLETCONNECT_PROJECT_ID` | none | enables QR connect for Robinhood Wallet on phones |
 | `DATA_DIR` | none | where paid matches in play are remembered across restarts |
 
-Mainnet would mean real-money wagering, which is regulated in many places. Get legal review first.
+Mainnet means real-money play, which is regulated in many places. To turn it on set `CHAIN_ID=4663`, `ALLOW_MAINNET=yes` and `FEE_RECIPIENT`, then fund the deployer. Step-by-step owner instructions are in `SETUP_GUIDE_FOR_AI.md`.
