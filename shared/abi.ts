@@ -18,6 +18,16 @@ export const bumperBallsAbi = [
         "type": "address"
       },
       {
+        "internalType": "address",
+        "name": "feeRecipient2_",
+        "type": "address"
+      },
+      {
+        "internalType": "uint16",
+        "name": "feeShareBps_",
+        "type": "uint16"
+      },
+      {
         "internalType": "uint16",
         "name": "feeBps_",
         "type": "uint16"
@@ -191,9 +201,52 @@ export const bumperBallsAbi = [
         "internalType": "address",
         "name": "feeRecipient",
         "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "feeRecipient2",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint16",
+        "name": "feeShareBps",
+        "type": "uint16"
       }
     ],
     "name": "FeeChanged",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "matchId",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "to",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "sent",
+        "type": "bool"
+      }
+    ],
+    "name": "FeePaid",
     "type": "event"
   },
   {
@@ -483,6 +536,19 @@ export const bumperBallsAbi = [
   },
   {
     "inputs": [],
+    "name": "VERSION",
+    "outputs": [
+      {
+        "internalType": "uint8",
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "acceptOwnership",
     "outputs": [],
     "stateMutability": "nonpayable",
@@ -607,6 +673,32 @@ export const bumperBallsAbi = [
         "internalType": "address",
         "name": "",
         "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "feeRecipient2",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "feeShareBps",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "",
+        "type": "uint16"
       }
     ],
     "stateMutability": "view",
@@ -823,6 +915,16 @@ export const bumperBallsAbi = [
         "internalType": "address",
         "name": "feeRecipient_",
         "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "feeRecipient2_",
+        "type": "address"
+      },
+      {
+        "internalType": "uint16",
+        "name": "feeShareBps_",
+        "type": "uint16"
       }
     ],
     "name": "setFee",

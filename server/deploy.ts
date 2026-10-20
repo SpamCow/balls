@@ -7,6 +7,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { bumperBallsAbi } from "../shared/abi";
 import { bumperBallsBytecode } from "../shared/bytecode";
 import { rpcUrl, signerAddress } from "./chain";
+import { wantedFees } from "./fees";
 import type { Env } from "./env";
 
 export type ContractStatus = {
@@ -28,8 +29,6 @@ export function ensureContract(env: Env, update: (s: ContractStatus) => void) {
   const chain = { id: chainId, name: `chain-${chainId}`, nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: [rpcUrl(env)] } } } as const;
   const pub = createPublicClient({ chain, transport: http(rpcUrl(env)) });
   const wallet = createWalletClient({ account, chain, transport: http(rpcUrl(env)) });
-  // the 5% fee goes here; defaults to the deployer, which the server controls
-  const feeRecipient = (process.env.FEE_RECIPIENT ? getAddress(process.env.FEE_RECIPIENT) : account.address) as Address;
   const autoDeploy = chainId !== 4663 || process.env.ALLOW_MAINNET === "yes";
   let busy = false;
 
@@ -46,14 +45,17 @@ export function ensureContract(env: Env, update: (s: ContractStatus) => void) {
       const [balance, nonce] = await Promise.all([pub.getBalance({ address: account.address }), pub.getTransactionCount({ address: account.address })]);
       const base = { address, deployer: account.address, balance: formatEther(balance) };
       if (!autoDeploy) return update({ ...base, state: "error", message: "Set ALLOW_MAINNET=yes to take real ETH." });
-      if (chainId === 4663 && !process.env.FEE_RECIPIENT) return update({ ...base, state: "error", message: "Set FEE_RECIPIENT to your wallet before the escrow deploys on mainnet." });
+      if (chainId === 4663 && !process.env.FEE_RECIPIENT && !process.env.FEE_SPLIT) return update({ ...base, state: "error", message: "Set FEE_RECIPIENT (or FEE_SPLIT) to your wallet before the escrow deploys on mainnet." });
+      // the 5% fee goes to these wallets; defaults to the deployer, which the server controls
+      const fees = wantedFees(account.address);
+      if (typeof fees === "string") return update({ ...base, state: "error", message: fees });
       if (nonce > 0) return update({ ...base, state: "error", message: "The deployer has already sent a transaction, so set CONTRACT_ADDRESS by hand." });
       if (balance < MIN_BALANCE) return update({ ...base, state: "needs-funds", message: `Send at least ${formatEther(MIN_BALANCE)} ETH to the deployer.` });
       update({ ...base, state: "deploying" });
       const hash = await wallet.deployContract({
         abi: bumperBallsAbi,
         bytecode: bumperBallsBytecode,
-        args: [account.address, signerAddress(env), feeRecipient, FEE_BPS, SETTLE_TIMEOUT],
+        args: [account.address, signerAddress(env), fees.walletA, fees.walletB, fees.shareBps, FEE_BPS, SETTLE_TIMEOUT],
       });
       const rcpt = await pub.waitForTransactionReceipt({ hash, timeout: 120_000 });
       if (rcpt.contractAddress && getAddress(rcpt.contractAddress) !== address) throw new Error(`deployed to unexpected ${rcpt.contractAddress}`);

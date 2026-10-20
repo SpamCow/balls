@@ -37,8 +37,6 @@ export interface Persist {
   activePaid(matchId: string, active: boolean): void;
   /** Count a finished match toward a signed-in player's record. */
   record(address: Address, won: boolean, prizeWei: bigint): void;
-  /** A finished match was settled on-chain by the server. */
-  settled(): void;
   nameOf(address: Address): string | null;
 }
 
@@ -343,7 +341,6 @@ export class Room {
       settleMatch(this.env, cfg.matchId as Hex, winner, result)
         .then((hash) => {
           if (hash) log(`settled ${cfg.matchId} in ${hash}`);
-          this.persist.settled();
         })
         .catch((e) => log(`couldn't settle ${cfg.matchId}: ${(e as Error).message.split("\n")[0]}`));
     } else if (winnerSeat !== null && !this.bots.has(winnerSeat)) {

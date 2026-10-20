@@ -834,54 +834,31 @@ async function openFees() {
   $("#match").hidden = true;
   $("#fees").hidden = false;
   const actions = $("#fee-actions");
+  actions.innerHTML = "";
   const pub = createPublicClient({ chain, transport: http(cfg.rpcUrl) });
-  let st: any = {};
+  const read = (functionName: "feeRecipient" | "feeRecipient2" | "feeShareBps") => pub.readContract({ address: cfg.contract, abi: bumperBallsAbi, functionName });
+  let wallets: { wallet: Address; percent: number; owed: bigint }[];
   try {
-    st = await (await fetch("/api/fees")).json();
-  } catch {}
-  if (st.mode === "split") {
-    $("#fee-intro").textContent = "The 5% from every paid match is split between two wallets automatically. It's paid out on its own once 0.002 ETH has built up, or right away with the button below.";
-    $("#fee-addr").innerHTML = st.split.map((x: any) => `${x.percent}% → ${esc(short(x.wallet))}`).join("<br>");
-    $("#fee-bal").textContent = eth(parseEther(String(st.pending)));
-    actions.innerHTML = `<button class="btn" id="fee-payout">Pay out now</button>`;
-    $("#fee-payout").onclick = async () => {
-      try {
-        const r = await fetch("/api/fees/payout", { method: "POST" });
-        const j = await r.json();
-        if (!r.ok) throw new Error(j.error);
-        toast(j.hash ? "Paid out to both wallets." : "Nothing to pay out yet.", "ok");
-        if (j.hash) sfx.coin();
-      } catch (e) {
-        toast(errMsg(e), "error");
-      }
-      openFees();
-    };
-    if (st.earlier) {
-      const box = document.createElement("div");
-      box.style.marginTop = "18px";
-      box.innerHTML = `<p class="muted small">Fees from before the split, ${esc(eth(parseEther(String(st.earlier.owed))))}, are still waiting for the old fee wallet ${esc(short(st.earlier.wallet))}. Connect that wallet to collect them.</p>`;
-      actions.append(box);
-      const owed = (await pub.readContract({ address: cfg.contract, abi: bumperBallsAbi, functionName: "balances", args: [st.earlier.wallet] })) as bigint;
-      collectUi(box, getAddress(st.earlier.wallet), owed);
-    }
-    return;
-  }
-  $("#fee-intro").textContent = "The 5% from every paid match is held in the contract for the fee wallet. Only that wallet can collect it, so connect it here with a browser wallet such as MetaMask or Rabby.";
-  let recipient: Address;
-  let owed = 0n;
-  try {
-    recipient = (await pub.readContract({ address: cfg.contract, abi: bumperBallsAbi, functionName: "feeRecipient" })) as Address;
-    owed = (await pub.readContract({ address: cfg.contract, abi: bumperBallsAbi, functionName: "balances", args: [recipient] })) as bigint;
+    const [a, b, share] = (await Promise.all([read("feeRecipient"), read("feeRecipient2"), read("feeShareBps")])) as [Address, Address, number];
+    const list = a === b ? [{ wallet: a, percent: 100 }] : [{ wallet: a, percent: share / 100 }, { wallet: b, percent: 100 - share / 100 }];
+    wallets = await Promise.all(list.map(async (x) => ({ ...x, owed: (await pub.readContract({ address: cfg.contract, abi: bumperBallsAbi, functionName: "balances", args: [x.wallet] })) as bigint })));
   } catch {
+    $("#fee-intro").textContent = "The contract isn't set up yet.";
     $("#fee-addr").textContent = "";
     $("#fee-bal").textContent = "…";
-    actions.innerHTML = `<p class="muted">The contract isn't set up yet, so there's nothing to collect.</p>`;
     return;
   }
-  $("#fee-addr").textContent = recipient;
-  $("#fee-bal").textContent = eth(owed);
-  actions.innerHTML = "";
-  collectUi(actions, recipient, owed);
+  $("#fee-intro").textContent = "The 5% from every paid match is sent straight to these wallets by the contract when the match ends. Nobody has to collect it.";
+  $("#fee-addr").innerHTML = wallets.map((x) => `${x.percent}% → ${esc(short(x.wallet))}`).join("<br>");
+  const stuck = wallets.filter((x) => x.owed > 0n);
+  $("#fee-bal").textContent = eth(stuck.reduce((t, x) => t + x.owed, 0n));
+  // only if a wallet refused the payment: its share waits in the contract until it collects it
+  for (const x of stuck) {
+    const box = document.createElement("div");
+    box.innerHTML = `<p class="muted small">${esc(short(x.wallet))} couldn't receive ${esc(eth(x.owed))} automatically. Connect that wallet to collect it.</p>`;
+    actions.append(box);
+    collectUi(box, x.wallet, x.owed);
+  }
 }
 
 /** Connect the given fee wallet with a browser wallet and collect what it's owed. */

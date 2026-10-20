@@ -68,10 +68,10 @@ export function deployerTx<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
-export function deployerClients(env: Env) {
+export function deployerClients(env: Env, key = env.DEPLOYER_KEY) {
   const chainId = Number(env.CHAIN_ID);
   const chain = { id: chainId, name: `chain-${chainId}`, nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: [rpcUrl(env)] } } } as const;
-  const account = privateKeyToAccount(env.DEPLOYER_KEY as Hex);
+  const account = privateKeyToAccount(key as Hex);
   return {
     account,
     pub: createPublicClient({ chain, transport: http(rpcUrl(env), { retryCount: 2 }) }),
@@ -100,10 +100,10 @@ export async function settleMatch(env: Env, matchId: Hex, winner: Address, sig: 
   return null;
 }
 
-/** Sends everything in the deployer address (minus gas) to `to`. For shutting a site down:
- *  the deployer only holds gas money, and without it the server can't settle matches. */
-export async function sweepDeployer(env: Env, to: Address): Promise<{ hash: Hex; sent: bigint } | null> {
-  const { account, pub, wallet } = deployerClients(env);
+/** Sends everything in a deployer address (minus gas) to `to`. Used to take a site down
+ *  (the deployer only holds gas money), and to move the old deployer's gas money to the new one. */
+export async function sweepDeployer(env: Env, to: Address, key = env.DEPLOYER_KEY): Promise<{ hash: Hex; sent: bigint; from: Address } | null> {
+  const { account, pub, wallet } = deployerClients(env, key);
   return deployerTx(async () => {
     const balance = await pub.getBalance({ address: account.address });
     const fees = await pub.estimateFeesPerGas();
@@ -113,6 +113,6 @@ export async function sweepDeployer(env: Env, to: Address): Promise<{ hash: Hex;
     const value = balance - cost;
     const hash = await wallet.sendTransaction({ to, value, gas: (gas * 3n) / 2n, maxFeePerGas: fees.maxFeePerGas, maxPriorityFeePerGas: fees.maxPriorityFeePerGas });
     await pub.waitForTransactionReceipt({ hash });
-    return { hash, sent: value };
+    return { hash, sent: value, from: account.address };
   });
 }

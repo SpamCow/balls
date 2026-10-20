@@ -12,7 +12,7 @@ import { loadEnv } from "./env";
 import { Room, type Config } from "./room";
 import { ensureContract, type ContractStatus } from "./deploy";
 import { createProfiles } from "./profiles";
-import { createFees } from "./fees";
+import { syncFees } from "./fees";
 
 const env = loadEnv();
 const PORT = Number(process.env.PORT || 8787);
@@ -31,14 +31,12 @@ let currentPractice = "";
 const activeFile = DATA_DIR ? path.join(DATA_DIR, "active-paid.json") : "";
 const activePaid = new Set<string>(activeFile && fs.existsSync(activeFile) ? JSON.parse(fs.readFileSync(activeFile, "utf8")) : []);
 const profiles = createProfiles(DATA_DIR);
-const fees = createFees(env);
 const persist = {
   activePaid(id: string, on: boolean) {
     on ? activePaid.add(id) : activePaid.delete(id);
     if (activeFile) fs.writeFileSync(activeFile, JSON.stringify([...activePaid]));
   },
   record: (address: Address, won: boolean, prizeWei: bigint) => profiles.record(address, won, prizeWei),
-  settled: () => fees.afterSettle(),
   nameOf: (address: Address) => profiles.name(address),
 };
 
@@ -108,17 +106,25 @@ function sweep() {
   if (!sweepTo || swept) return;
   swept = true;
   if (!isAddress(sweepTo)) return log("SWEEP_DEPLOYER_TO is not a wallet address, so nothing was sent");
-  sweepDeployer(env, getAddress(sweepTo))
-    .then((r) => log(r ? `sent ${formatEther(r.sent)} ETH from the deployer ${deployerClients(env).account.address} to ${sweepTo} in ${r.hash}` : "the deployer has too little ETH to send anything"))
-    .catch((e) => log("couldn't send the deployer's ETH:", (e as Error).message.split("\n")[0]));
+  for (const key of [env.DEPLOYER_KEY, env.OLD_DEPLOYER_KEY].filter(Boolean) as string[])
+    sweepDeployer(env, getAddress(sweepTo), key)
+      .then((r) => r && log(`sent ${formatEther(r.sent)} ETH from the deployer ${r.from} to ${sweepTo} in ${r.hash}`))
+      .catch((e) => log("couldn't send the deployer's ETH:", (e as Error).message.split("\n")[0]));
 }
+
+// The first contract version had its own deployer. Move any gas money left there to the
+// current deployer so the owner doesn't have to fund it again.
+if (env.OLD_DEPLOYER_KEY && !sweepTo)
+  sweepDeployer(env, deployerClients(env).account.address, env.OLD_DEPLOYER_KEY)
+    .then((r) => r && log(`moved ${formatEther(r.sent)} ETH of gas money from the old deployer ${r.from} to ${deployerClients(env).account.address} in ${r.hash}`))
+    .catch((e) => log("couldn't move the old deployer's ETH:", (e as Error).message.split("\n")[0]));
 
 let contract: ContractStatus = { state: "checking", address: getAddress(env.CONTRACT_ADDRESS) };
 ensureContract(env, (s) => {
   contract = s;
   if (s.state === "live") {
     log(`escrow live at ${s.address}`);
-    if (!sweepTo) fees.setup();
+    if (!sweepTo) syncFees(env);
   }
   if (s.state !== "checking" && s.state !== "deploying") sweep();
 });
@@ -217,11 +223,6 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === "/api/skins") return sendJson(res, 200, skinList);
     if (p === "/api/leaderboard") return sendJson(res, 200, profiles.leaderboard());
-    if (p === "/api/fees" && req.method === "GET") return sendJson(res, 200, fees.status());
-    if (p === "/api/fees/payout" && req.method === "POST") {
-      const r = await fees.manualPayout();
-      return sendJson(res, r.status, r.body);
-    }
     if (p === "/api/queue" && req.method === "POST") {
       const address = await verifyToken(env, req.headers.authorization?.replace(/^Bearer /, ""));
       if (!address) return sendJson(res, 401, { error: "sign in first" });

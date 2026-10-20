@@ -129,16 +129,17 @@ const gained = (await pub.getBalance({ address: winner.acct.address })) - before
 console.log(`✓ winner claimed ${Number(gained) / 1e18} ETH`);
 if (gained !== 1_900_000_000_000_000n) throw new Error(`unexpected payout ${gained}`);
 
-// the server settles finished matches itself, so the house cut is credited without anyone claiming
+// the contract sends the house cut straight to the fee wallets when the match settles
 {
-  const feeTo = (await pub.readContract({ address: cfg.contract, abi: bumperBallsAbi, functionName: "feeRecipient" })) as Address;
-  let fee = 0n;
-  for (let i = 0; i < 30 && fee === 0n; i++) {
-    fee = (await pub.readContract({ address: cfg.contract, abi: bumperBallsAbi, functionName: "balances", args: [feeTo] })) as bigint;
-    if (fee === 0n) await new Promise((r) => setTimeout(r, 1000));
-  }
-  if (fee < 100_000_000_000_000n) throw new Error(`house cut not credited: ${fee}`);
-  console.log(`✓ house cut credited to the fee wallet: ${Number(fee) / 1e18} ETH waiting`);
+  const read = (functionName: "feeRecipient" | "feeRecipient2" | "feeShareBps") => pub.readContract({ address: cfg.contract, abi: bumperBallsAbi, functionName });
+  const [a, b, share] = (await Promise.all([read("feeRecipient"), read("feeRecipient2"), read("feeShareBps")])) as [Address, Address, number];
+  const fee = (1_900_000_000_000_000n * 5n) / 95n; // 5% of a 0.002 pot
+  const wantA = (fee * BigInt(share)) / 10_000n;
+  const gotA = await pub.getBalance({ address: a });
+  const gotB = a === b ? 0n : await pub.getBalance({ address: b });
+  if (process.env.EXPECT_FRESH_FEE_WALLETS && (gotA !== wantA || gotB !== fee - wantA)) throw new Error(`house cut wrong: ${gotA} / ${gotB}, wanted ${wantA} / ${fee - wantA}`);
+  if (gotA === 0n) throw new Error("house cut not paid");
+  console.log(`✓ house cut paid straight to the fee wallets: ${Number(gotA) / 1e18} + ${Number(gotB) / 1e18} ETH (${share / 100}% / ${100 - share / 100}%)`);
 }
 
 const status = await (await fetch(`${BASE}/api/match/${matchId}`)).json();

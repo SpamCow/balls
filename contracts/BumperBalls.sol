@@ -16,6 +16,8 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 ///  - if a match doesn't fill or isn't settled in time, every player can
 ///    reclaim their full stake without anyone's permission,
 ///  - pausing only blocks new joins; refunds and withdrawals always work.
+/// The house cut is sent straight to up to two fee wallets in the same
+/// transaction that settles each match, so nobody has to collect it.
 contract BumperBalls is EIP712, Ownable2Step, ReentrancyGuard {
     uint16 public constant MAX_FEE_BPS = 1000; // 10% hard cap
     uint8 public constant MAX_PLAYERS = 4;
@@ -46,8 +48,17 @@ contract BumperBalls is EIP712, Ownable2Step, ReentrancyGuard {
     );
     bytes32 private constant RESULT_TYPEHASH = keccak256("MatchResult(bytes32 matchId,address winner)");
 
+    /// @notice Bumped when the contract changes, so the server can tell versions apart.
+    uint8 public constant VERSION = 2;
+    /// @dev Gas each fee wallet gets when the cut is pushed to it. Enough for a
+    /// normal wallet or a Safe; if a push fails the amount is kept as a balance
+    /// the wallet can withdraw, so settling can never be blocked.
+    uint256 private constant FEE_PUSH_GAS = 60_000;
+
     address public signer;
-    address public feeRecipient;
+    address public feeRecipient; // gets feeShareBps of the cut
+    address public feeRecipient2; // gets the rest
+    uint16 public feeShareBps; // first wallet's share of the cut, out of 10_000
     uint16 public feeBps;
     uint64 public settleTimeout;
     bool public paused;
@@ -65,7 +76,8 @@ contract BumperBalls is EIP712, Ownable2Step, ReentrancyGuard {
     event Refunded(bytes32 indexed matchId, address indexed player, uint256 amount);
     event Withdrawn(address indexed account, uint256 amount);
     event SignerChanged(address signer);
-    event FeeChanged(uint16 feeBps, address feeRecipient);
+    event FeeChanged(uint16 feeBps, address feeRecipient, address feeRecipient2, uint16 feeShareBps);
+    event FeePaid(bytes32 indexed matchId, address indexed to, uint256 amount, bool sent);
     event SettleTimeoutChanged(uint64 settleTimeout);
     event Paused(bool paused);
 
@@ -84,12 +96,17 @@ contract BumperBalls is EIP712, Ownable2Step, ReentrancyGuard {
     error TransferFailed();
     error IsPaused();
 
-    constructor(address owner_, address signer_, address feeRecipient_, uint16 feeBps_, uint64 settleTimeout_)
-        EIP712("BumperBalls", "1")
-        Ownable(owner_)
-    {
+    constructor(
+        address owner_,
+        address signer_,
+        address feeRecipient_,
+        address feeRecipient2_,
+        uint16 feeShareBps_,
+        uint16 feeBps_,
+        uint64 settleTimeout_
+    ) EIP712("BumperBalls", "1") Ownable(owner_) {
         _setSigner(signer_);
-        _setFee(feeBps_, feeRecipient_);
+        _setFee(feeBps_, feeRecipient_, feeRecipient2_, feeShareBps_);
         _setSettleTimeout(settleTimeout_);
     }
 
@@ -165,7 +182,7 @@ contract BumperBalls is EIP712, Ownable2Step, ReentrancyGuard {
 
     /// @notice Record a server-signed result. Anyone may submit it. A zero
     /// winner means the server called the match off, and everyone is refunded.
-    function settle(bytes32 matchId, address winner, bytes calldata resultSig) public {
+    function settle(bytes32 matchId, address winner, bytes calldata resultSig) public nonReentrant {
         Match storage m = matches[matchId];
         if (m.status != Status.Full) revert MatchNotFull();
         if (block.timestamp > m.settleDeadline) revert NotRefundable(); // too late, refunds only
@@ -191,8 +208,11 @@ contract BumperBalls is EIP712, Ownable2Step, ReentrancyGuard {
         uint256 pot = uint256(m.entryFee) * m.playerCount;
         uint256 fee = (pot * m.feeBps) / 10_000;
         balances[winner] += pot - fee;
-        balances[feeRecipient] += fee;
         emit MatchSettled(matchId, winner, pot - fee, fee);
+        // every state change is done; now push the cut to the fee wallets
+        uint256 first = (fee * feeShareBps) / 10_000;
+        _payFee(matchId, feeRecipient, first);
+        _payFee(matchId, feeRecipient2, fee - first);
     }
 
     /// @notice Settle (if needed) and withdraw the caller's balance in one go.
@@ -245,9 +265,11 @@ contract BumperBalls is EIP712, Ownable2Step, ReentrancyGuard {
         _setSigner(signer_);
     }
 
-    /// @dev Only affects matches created after the change. Capped at 10%.
-    function setFee(uint16 feeBps_, address feeRecipient_) external onlyOwner {
-        _setFee(feeBps_, feeRecipient_);
+    /// @dev The fee rate only affects matches created after the change; the
+    /// wallets apply from the next settlement. Capped at 10%. For a single wallet
+    /// pass it twice with a share of 10_000.
+    function setFee(uint16 feeBps_, address feeRecipient_, address feeRecipient2_, uint16 feeShareBps_) external onlyOwner {
+        _setFee(feeBps_, feeRecipient_, feeRecipient2_, feeShareBps_);
     }
 
     function setSettleTimeout(uint64 settleTimeout_) external onlyOwner {
@@ -268,11 +290,22 @@ contract BumperBalls is EIP712, Ownable2Step, ReentrancyGuard {
         emit SignerChanged(signer_);
     }
 
-    function _setFee(uint16 feeBps_, address feeRecipient_) internal {
-        if (feeBps_ > MAX_FEE_BPS || feeRecipient_ == address(0)) revert BadParams();
+    function _setFee(uint16 feeBps_, address feeRecipient_, address feeRecipient2_, uint16 feeShareBps_) internal {
+        if (feeBps_ > MAX_FEE_BPS || feeShareBps_ > 10_000) revert BadParams();
+        if (feeRecipient_ == address(0) || feeRecipient2_ == address(0)) revert BadParams();
         feeBps = feeBps_;
         feeRecipient = feeRecipient_;
-        emit FeeChanged(feeBps_, feeRecipient_);
+        feeRecipient2 = feeRecipient2_;
+        feeShareBps = feeShareBps_;
+        emit FeeChanged(feeBps_, feeRecipient_, feeRecipient2_, feeShareBps_);
+    }
+
+    /// @dev Sends a share of the cut; if the wallet refuses it, it's kept as a balance instead.
+    function _payFee(bytes32 matchId, address to, uint256 amount) internal {
+        if (amount == 0) return;
+        (bool ok,) = to.call{value: amount, gas: FEE_PUSH_GAS}("");
+        if (!ok) balances[to] += amount;
+        emit FeePaid(matchId, to, amount, ok);
     }
 
     function _setSettleTimeout(uint64 settleTimeout_) internal {

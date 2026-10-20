@@ -72,7 +72,7 @@ Free play works as soon as it's up. To open paid matches, send about 0.005 Robin
 | `RPC_URL` | public RPC for the chain | |
 | `CONTRACT_ADDRESS` | deployer's first contract | set only if you deployed the escrow yourself |
 | `FEE_RECIPIENT` | deployer | your wallet for the 5% fee |
-| `FEE_SPLIT` | none | `0xA:69,0xB:31` splits the fee between two wallets through a FeeSplitter contract the server deploys; paid out automatically at 0.002 ETH or from `/#fees` |
+| `FEE_SPLIT` | none | `0xA:69,0xB:31` splits the fee between two wallets; the contract sends each share straight to its wallet when a match settles |
 | `PRIVY_APP_ID` | none | email/Google sign-in through Privy, with a built-in wallet per player (deposit, play, cash out). Replaces Connect wallet |
 | `WALLETCONNECT_PROJECT_ID` | none | without Privy only: QR connect for Robinhood Wallet on phones |
 | `DATA_DIR` | none | where paid matches in play, usernames and stats (`profiles.json`) are kept across restarts |

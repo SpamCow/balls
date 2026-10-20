@@ -109,6 +109,7 @@ async function rejects(p: Promise<unknown>, err: string) {
 }
 
 const getMatch = (id: Hex) => pub.readContract({ address: addr, abi, functionName: "getMatch", args: [id] }) as Promise<any>;
+const ethOf = (a: Address) => pub.getBalance({ address: a });
 const balanceIn = (a: Address) => pub.readContract({ address: addr, abi, functionName: "balances", args: [a] }) as Promise<bigint>;
 
 before(async () => {
@@ -124,7 +125,7 @@ before(async () => {
   const hash = await wallet(owner).deployContract({
     abi,
     bytecode,
-    args: [owner.address, signer.address, feeSink.address, 500, SETTLE_TIMEOUT],
+    args: [owner.address, signer.address, feeSink.address, feeSink.address, 10_000, 500, SETTLE_TIMEOUT],
   });
   addr = (await pub.waitForTransactionReceipt({ hash })).contractAddress!;
 });
@@ -141,12 +142,15 @@ test("full 2-player match pays the winner minus 5% fee", async () => {
   assert.equal(m.status, MatchStatus.Full);
   assert.equal(m.playerCount, 2);
 
+  const fee0 = await ethOf(feeSink.address);
   const before = await pub.getBalance({ address: bob.address });
   const rcpt = await call(bob, "claim", [id, bob.address, await result(id, bob.address)]);
   const after = await pub.getBalance({ address: bob.address });
   const gas = rcpt.gasUsed * rcpt.effectiveGasPrice;
   assert.equal(after - before + gas, (FEE * 2n * 95n) / 100n);
-  assert.equal(await balanceIn(feeSink.address), (FEE * 2n * 5n) / 100n);
+  // the cut lands in the fee wallet in the same transaction, nothing left to collect
+  assert.equal((await ethOf(feeSink.address)) - fee0, (FEE * 2n * 5n) / 100n);
+  assert.equal(await balanceIn(feeSink.address), 0n);
   assert.equal((await getMatch(id)).status, MatchStatus.Settled);
 });
 
@@ -255,49 +259,58 @@ test("admin changes don't affect running matches; fee cap and pause hold", async
   await join(alice, id, { joinDeadline: jd });
   // owner rotates signer and raises fee mid-match
   await call(owner, "setSigner", [rogue.address]);
-  await call(owner, "setFee", [1000, feeSink.address]);
-  await rejects(call(owner, "setFee", [1001, feeSink.address]), "BadParams");
+  await call(owner, "setFee", [1000, feeSink.address, feeSink.address, 10_000]);
+  await rejects(call(owner, "setFee", [1001, feeSink.address, feeSink.address, 10_000]), "BadParams");
+  await rejects(call(owner, "setFee", [500, feeSink.address, feeSink.address, 10_001]), "BadParams");
+  await rejects(call(owner, "setFee", [500, feeSink.address, zeroAddress, 10_000]), "BadParams");
+  await rejects(call(alice, "setFee", [500, alice.address, alice.address, 10_000]), "OwnableUnauthorizedAccount");
   // bob's ticket from the original signer still matches the snapshot
   await join(bob, id, { joinDeadline: jd });
   // the new signer can't settle the old match
   await rejects(call(alice, "settle", [id, alice.address, await result(id, alice.address, rogue)]), "BadSignature");
-  const fs0 = await balanceIn(feeSink.address);
+  const fs0 = await ethOf(feeSink.address);
   await call(alice, "settle", [id, alice.address, await result(id, alice.address)]);
-  assert.equal((await balanceIn(feeSink.address)) - fs0, (FEE * 2n * 5n) / 100n); // still 5%
+  assert.equal((await ethOf(feeSink.address)) - fs0, (FEE * 2n * 5n) / 100n); // still 5%
   await rejects(call(alice, "setPaused", [true]), "OwnableUnauthorizedAccount");
   await call(owner, "setPaused", [true]);
   await rejects(join(alice, newMatchId(), { joinDeadline: jd, by: rogue }), "IsPaused");
   await call(alice, "withdraw", []); // withdrawals still work while paused
   await call(owner, "setPaused", [false]);
   await call(owner, "setSigner", [signer.address]);
-  await call(owner, "setFee", [500, feeSink.address]);
+  await call(owner, "setFee", [500, feeSink.address, feeSink.address, 10_000]);
 });
 
-test("fee splitter pays the house cut 69/31 and can't be re-entered or redirected", async () => {
-  const sp = JSON.parse(fs.readFileSync("build/FeeSplitter.json", "utf8"));
+test("the house cut is split 69/31 straight to two wallets when a match settles", async () => {
   const a = privateKeyToAccount(generatePrivateKey()).address;
   const b = privateKeyToAccount(generatePrivateKey()).address;
-  const dh = await wallet(owner).deployContract({ abi: sp.abi, bytecode: sp.bytecode, args: [addr, a, b, 6900] });
-  const splitter = (await pub.waitForTransactionReceipt({ hash: dh })).contractAddress!;
-  await rejects(
-    wallet(owner).deployContract({ abi: sp.abi, bytecode: sp.bytecode, args: [addr, a, zeroAddress, 6900] }).then((h) => pub.waitForTransactionReceipt({ hash: h })),
-    "BadConfig|revert",
-  );
-  await call(owner, "setFee", [500, splitter]);
+  await call(owner, "setFee", [500, a, b, 6900]);
   const id = newMatchId();
   const jd = (await now()) + 600n;
   await join(alice, id, { joinDeadline: jd });
   await join(bob, id, { joinDeadline: jd });
   await call(carol, "settle", [id, alice.address, await result(id, alice.address)]);
   const fee = (FEE * 2n * 500n) / 10_000n;
-  assert.equal(await balanceIn(splitter), fee);
-  // anyone can trigger the payout; the money only ever goes to the two fixed wallets
-  const ph = await wallet(dave).writeContract({ address: splitter, abi: sp.abi, functionName: "payout", args: [] });
-  await pub.waitForTransactionReceipt({ hash: ph });
-  assert.equal(await pub.getBalance({ address: a }), (fee * 6900n) / 10_000n);
-  assert.equal(await pub.getBalance({ address: b }), fee - (fee * 6900n) / 10_000n);
-  assert.equal(await balanceIn(splitter), 0n);
-  // a second payout with nothing pending is a harmless no-op
-  await pub.waitForTransactionReceipt({ hash: await wallet(dave).writeContract({ address: splitter, abi: sp.abi, functionName: "payout", args: [] }) });
-  await call(owner, "setFee", [500, feeSink.address]);
+  assert.equal(await ethOf(a), (fee * 6900n) / 10_000n);
+  assert.equal(await ethOf(b), fee - (fee * 6900n) / 10_000n);
+  assert.equal(await balanceIn(a), 0n);
+  assert.equal(await balanceIn(b), 0n);
+  await call(owner, "setFee", [500, feeSink.address, feeSink.address, 10_000]);
+});
+
+test("a fee wallet that refuses ETH can't block settling; its share waits as a balance", async () => {
+  // a contract that reverts on every call
+  const dh = await wallet(owner).sendTransaction({ data: "0x6005600c60003960056000f360006000fd" });
+  const refuser = (await pub.waitForTransactionReceipt({ hash: dh })).contractAddress!;
+  const b = privateKeyToAccount(generatePrivateKey()).address;
+  await call(owner, "setFee", [500, refuser, b, 5000]);
+  const id = newMatchId();
+  const jd = (await now()) + 600n;
+  await join(alice, id, { joinDeadline: jd });
+  await join(bob, id, { joinDeadline: jd });
+  await call(bob, "claim", [id, bob.address, await result(id, bob.address)]);
+  const fee = (FEE * 2n * 500n) / 10_000n;
+  assert.equal(await balanceIn(refuser), fee / 2n);
+  assert.equal(await ethOf(b), fee - fee / 2n);
+  assert.equal((await getMatch(id)).status, MatchStatus.Settled);
+  await call(owner, "setFee", [500, feeSink.address, feeSink.address, 10_000]);
 });

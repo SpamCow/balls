@@ -78,13 +78,12 @@ If the owner received the repository itself (a GitHub transfer of `SpamCow/balls
 | `server/room.ts` | Game rooms, matchmaking, results |
 | `server/deploy.ts` | Deploys the escrow contract automatically |
 | `server/chain.ts` | Chain calls: settle, deployer transactions, sweep |
-| `server/fees.ts` | House-cut split |
+| `server/fees.ts` | Fee wallet settings (`FEE_RECIPIENT` / `FEE_SPLIT`), kept in sync with the contract |
 | `server/profiles.ts` | Usernames and stats, stored in `DATA_DIR/profiles.json` |
 | `server/auth.ts` | Sign-in tokens |
 | `server/env.ts` | Reads settings and derives keys |
 | `shared/physics.ts` | The game simulation. `shared/config.ts` holds bet tiers, chains and colors |
 | `contracts/BumperBalls.sol` | Escrow: signed join tickets, signed results, timeouts, refunds, withdrawals |
-| `contracts/FeeSplitter.sol` | Splits the house cut between two wallets |
 | `web/` | The website: Vite + three.js. `web/src/main.ts` is the UI, `render.ts` the 3D view, `privy.ts` sign-in, `sound.ts` the sounds |
 | `hosting/` | systemd service, Caddyfile, cPanel start file, example settings |
 | `render.yaml`, `Dockerfile` | Render Blueprint (Docker) |
@@ -106,7 +105,7 @@ npm run build          # needs about 2.5 GB of RAM
 - When there's no contract yet, the server deploys the escrow on its own. This happens once the **deployer address** (shown on the site and in `/api/config` → `paid.deployer`) holds at least 0.002 ETH on the chosen chain.
 - Players pay their entry into the contract with tickets signed by the server.
 - After each match the server signs the result and settles it on-chain, paying a small amount of gas from the deployer.
-- The winner presses Claim to receive the pot. The 5% house cut stays in the contract until it's collected (see House cut).
+- The winner presses Claim to receive the pot. The 5% house cut is sent straight to the fee wallets in the same transaction that ends the match (see House cut).
 - If a match doesn't fill within 10 minutes, or isn't settled within 30, every player can refund themselves straight from the contract.
 - A **new owner with a new `SERVER_SECRET` gets their own new contract.** That's expected, and the previous owner's contract doesn't matter to them.
 - The contract has tests but has **not been professionally audited**, and real-money games are regulated. You must tell the owner both before turning on mainnet.
@@ -269,14 +268,19 @@ This needs the owner's explicit yes. Then set:
 
 - Restart. The site shows "Play for ETH" and the mainnet deployer address.
 - The owner sends about **0.005 ETH on Robinhood Chain mainnet** (not Ethereum mainnet) to the deployer. The contract deploys itself and the buttons unlock.
-- Keep about 0.002 ETH in the deployer, since it pays gas for settling matches and fee payouts.
+- Keep about 0.002 ETH in the deployer, since it pays gas for settling matches.
 - The explorer is https://robin.etherscan.io.
 - If the site shows a message instead of unlocking, follow it: `Set ALLOW_MAINNET=yes`, `Set FEE_RECIPIENT`, or `Send at least 0.002 ETH to the deployer`.
 
 ### House cut
 
-- **With `FEE_SPLIT` (recommended):** the server deploys a FeeSplitter once and points the house cut at it. Whenever at least 0.002 ETH has built up, it pays both wallets automatically. To pay out sooner, the owner double-clicks the script in `tools/collect-fees/` (Mac `.command` or Windows `.bat`; put the game's address in `site.txt` first). It holds no keys: it asks the server to run the payout, and the splitter can only ever pay those two wallets. The `/#fees` page also has a **Pay out now** button, but it's no longer linked from the home page. Never set up a script that stores the fee wallets' private keys.
-- **Without `FEE_SPLIT`:** the cut is held in the contract for `FEE_RECIPIENT`, and only that wallet can collect it. Either open `/#fees`, connect that wallet with MetaMask or Rabby and press Collect, or skip the site entirely: from that wallet, send 0 ETH to the contract address with hex data `0x3ccfd60b` (that's `withdraw()`). MetaMask sometimes shows a "drainer" warning for a new site on a shared address like onrender.com. The hex-data route avoids it.
+The contract sends the house cut straight to the fee wallets in the same transaction that ends each match (the server's settle, or the winner's Claim). Nothing runs separately, nobody collects anything, and no script or key is needed.
+
+- **With `FEE_SPLIT`:** the cut is split between the two wallets in those shares.
+- **Without it:** all of it goes to `FEE_RECIPIENT`.
+- **Changing it later:** edit the setting and restart. The server updates the contract's fee wallets with `setFee`, and the change applies from the next match that ends.
+- **If a wallet can't accept ETH** (a contract wallet that rejects payments), its share is kept in the contract instead of blocking the match. `/#fees` shows any such amount, and that wallet collects it there.
+- **Never set up a script that stores the fee wallets' private keys.** It's never needed.
 
 ## Changing the game
 
@@ -292,7 +296,7 @@ This needs the owner's explicit yes. Then set:
 ## Taking the site down
 
 1. Ask players to cash out first. Their built-in wallets are held through Privy, and the site is their easy way to reach them.
-2. Collect or pay out the house cut (see House cut).
+2. Nothing to do for the house cut: it was paid out as each match ended.
 3. Get the deployer's leftover ETH back: set `SWEEP_DEPLOYER_TO=0x<owner wallet>` and restart. The log shows `sent ... ETH from the deployer ... in 0x...`. Then remove the setting again, unless the site is staying down.
 4. Stop the hosting: on Render, Settings → Suspend (or delete); on a VPS, `sudo systemctl disable --now bumper-balls`.
 5. Keep `SERVER_SECRET`. Any match still in the contract can be refunded by its players straight from the contract after the timeout.
@@ -316,7 +320,7 @@ This needs the owner's explicit yes. Then set:
 | `SERVER_SECRET` | none (Render generates it) | Required, 32+ random characters. **Never change it, and keep a private copy** |
 | `CHAIN_ID` | `46630` testnet | `4663` is mainnet |
 | `ALLOW_MAINNET` | not set | `yes` is required for mainnet |
-| `FEE_RECIPIENT` | the deployer | Required on mainnet |
+| `FEE_RECIPIENT` | the deployer | Required on mainnet unless `FEE_SPLIT` is set |
 | `FEE_SPLIT` | not set | `0xA:69,0xB:31` |
 | `RPC_URL` | public RPC | |
 | `PRIVY_APP_ID` | not set | Turns on email/Google sign-in |
