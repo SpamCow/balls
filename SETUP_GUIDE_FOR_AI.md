@@ -109,7 +109,7 @@ Render redeploys automatically when new code lands on the repo's `main` branch (
 | Deploy fails on Render | Open the deploy's **Logs** and have the owner paste the last 30 lines |
 | Site loads but games never start | Check the service is on 1 instance and the Starter plan (free instances sleep and drop rooms) |
 | Bet buttons stay locked | Read the message under the paid section and follow it (see Step 4b); confirm the ETH went to the deployer address on the right network |
-| A player's money seems stuck | Players connect their wallet, find the match under **Your matches** on the home page, and press **Refund** once the timeout has passed; this works even if the server is down, straight from the contract |
+| A player's money seems stuck | Players connect their wallet, find the match under **Your matches** on the home page, and press **Refund** once the timeout has passed. The refund comes straight from the contract, so it never depends on the server deciding anything |
 | Custom domain not working | Check the CNAME at the domain provider matches what Render shows exactly, then wait for DNS |
 
 ## Reference: all settings
