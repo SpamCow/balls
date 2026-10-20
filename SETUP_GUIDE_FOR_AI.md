@@ -234,6 +234,17 @@ Skip this if the owner only wants free play. Before you start, tell them three t
 2. The contract is not audited.
 3. Whoever controls the hosting and `SERVER_SECRET` controls who's reported as the winner. They should turn on two-factor sign-in everywhere.
 
+**Terms and privacy pages.** The site ships with `web/public/terms.html` and `web/public/privacy.html`, linked from the home page footer and the real-money dialog. They are templates: every highlighted `[BRACKET]` needs filling in before paid play goes live. In your one message to the owner, ask for:
+
+- their legal name or company
+- a contact email
+- the country or state whose law applies
+- any places to exclude from paid play
+- a gambling-help line for their country
+- the date
+
+Fill these in yourself, then remove any line they don't want. Tell the owner plainly that a lawyer should review both pages, because you are not one.
+
 ### 4a. Privy sign-in
 
 **The owner does this at https://dashboard.privy.io** (give them all of these steps in one message):
