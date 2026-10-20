@@ -18,12 +18,36 @@ export type PrivyState = {
 export type PrivyApi = { login: () => void; logout: () => Promise<void> };
 
 export function mountPrivy(appId: string, chain: Chain, onChange: (s: PrivyState) => void): Promise<PrivyApi> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     let lastKey = "";
+    let done = false;
+    // Privy reports setup problems (wrong app ID, origin not allowed) only on the
+    // console, so remember the last one to show the player instead of a dead button.
+    let lastProblem = "";
+    const consoleError = console.error;
+    console.error = (...args: unknown[]) => {
+      const text = args.map((a) => (a instanceof Error ? a.message : String(a))).join(" ");
+      if (/privy|origin|app id|app_id/i.test(text)) lastProblem = text.slice(0, 300);
+      consoleError(...args);
+    };
+    const fail = (why: string) => {
+      if (done) return;
+      done = true;
+      reject(new Error(why));
+    };
+    const timer = setTimeout(
+      () => fail(`Sign-in didn't finish loading${lastProblem ? `: ${lastProblem}` : ". Check PRIVY_APP_ID, and that this exact address (no slash at the end) is in the Privy app's Allowed origins."}`),
+      15000,
+    );
     function Bridge() {
       const { ready, authenticated, user, login, logout } = usePrivy();
       const { wallets, ready: walletsReady } = useWallets();
-      useEffect(() => resolve({ login, logout }), [login, logout]);
+      useEffect(() => {
+        if (!ready || done) return;
+        done = true;
+        clearTimeout(timer);
+        resolve({ login, logout });
+      }, [ready, login, logout]);
       useEffect(() => {
         if (!ready || !walletsReady) return;
         const linked = new Set((user?.linkedAccounts ?? []).flatMap((a: any) => (a.type === "wallet" && a.address ? [a.address.toLowerCase()] : [])));
@@ -44,7 +68,7 @@ export function mountPrivy(appId: string, chain: Chain, onChange: (s: PrivyState
     }
     const el = document.createElement("div");
     document.body.append(el);
-    createRoot(el).render(
+    createRoot(el, { onUncaughtError: (e) => fail(`Sign-in couldn't start: ${e instanceof Error ? e.message : String(e)}`) }).render(
       createElement(
         PrivyProvider,
         {

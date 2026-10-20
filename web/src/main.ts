@@ -54,6 +54,7 @@ let provider: EIP1193Provider | null = null;
 let account: Address | null = null;
 let privy: PrivyApi | null = null;
 let privyState: PrivyState | null = null;
+let privyProblem: string | null = null;
 let ws: WebSocket | null = null;
 let room: RoomState | null = null;
 let view: ArenaView;
@@ -113,7 +114,7 @@ function openWalletPicker() {
   if (cfg.privyAppId) {
     if (account) openAccount();
     else if (privy) privy.login();
-    else toast("Sign-in is still loading. Try again in a second.");
+    else toast(privyProblem ?? "Sign-in is still loading. Try again in a second.", privyProblem ? "error" : "info");
     return;
   }
   if (account) {
@@ -698,7 +699,10 @@ async function boot() {
     import("./privy")
       .then((m) => m.mountPrivy(cfg.privyAppId!, chain, onPrivy))
       .then((api) => (privy = api))
-      .catch((e) => toast(`Sign-in couldn't load: ${errMsg(e)}`, "error"));
+      .catch((e) => {
+        privyProblem = errMsg(e);
+        toast(privyProblem, "error");
+      });
   }
   $("#cashout-form").addEventListener("submit", cashOut);
   $("#out-max").onclick = () => ($<HTMLInputElement>("#out-amt").value = "max");
