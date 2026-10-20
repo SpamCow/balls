@@ -13,7 +13,6 @@ const sparkMat = (c: string) => {
 };
 const RING_GEO = new THREE.RingGeometry(0.85, 1, 64);
 const GHOST_GEO = new THREE.SphereGeometry(RULES.ballRadius, 20, 14);
-const PILLAR_GEO = new THREE.CylinderGeometry(1, 1, 1, 24, 1, true);
 
 type Fx = { mesh: THREE.Mesh; life: number; max: number; grow: number; fade: number };
 
@@ -37,7 +36,6 @@ export class ArenaView {
   private trails = new Map<number, number>(); // seat -> seconds of dash trail left
   private trailGap = 0;
   private flash: THREE.PointLight;
-  private punch = 0; // camera push-in on a clash
   private raf = 0;
   private zoom = 1;
   you: number | null = null;
@@ -176,27 +174,16 @@ export class ArenaView {
     this.overlay(mid, "hit", "", c);
   }
 
-  /** Two dashes meet head on: the big anime clash. */
+  /** Two dashes meet head on: a sword-clash spark burst where they hit. */
   clash(a: number, b: number) {
     const mid = this.mid(a, b);
     if (!mid) return;
-    const ca = COLORS[a % COLORS.length];
-    const cb = COLORS[b % COLORS.length];
-    this.shake = 1.8;
-    this.punch = 1;
-    this.burst(mid, 40, [ca, "#ffffff"], 20, 0.9);
-    this.burst(mid, 40, [cb, "#fff3b0"], 20, 0.9);
-    this.ring(mid, ca, 0.5, 8, 0.7);
-    this.ring(mid, cb, 0.3, 6, 0.6);
-    this.ring(mid, "#ffffff", 0.2, 11, 0.9);
-    // a column of light where they met
-    const pillar = new THREE.Mesh(PILLAR_GEO, new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
-    pillar.position.set(mid.x, 4, mid.z);
-    pillar.scale.set(0.6, 8, 0.6);
-    this.scene.add(pillar);
-    this.fx.push({ mesh: pillar, life: 0.6, max: 0.6, grow: -0.8, fade: 0.6 });
-    this.light(mid, "#ffffff", 120);
-    this.overlay(mid, "clash", "CLASH!", `linear-gradient(90deg, ${ca}, ${cb})`);
+    mid.y += 0.4;
+    this.shake = Math.min(1.2, this.shake + 0.8);
+    this.burst(mid, 34, ["#ffb347", "#ffd27a", "#ff7a2f", "#fff6d8"], 17, 0.55);
+    this.ring(mid, "#ffd27a", 0.3, 3.5, 0.3);
+    this.light(mid, "#ffb347", 70);
+    this.overlay(mid, "clash", "", "");
   }
 
   private mid(a: number, b: number) {
@@ -231,8 +218,8 @@ export class ArenaView {
     this.flash.intensity = Math.max(this.flash.intensity, intensity);
   }
 
-  /** Screen-space part of a hit: an impact star, or the full clash with speed lines and a flash. */
-  private overlay(at: THREE.Vector3, kind: "hit" | "clash", text: string, color: string) {
+  /** Screen-space part of a hit: an impact star, or the clash flare. */
+  private overlay(at: THREE.Vector3, kind: "hit" | "clash", _text: string, color: string) {
     const p = at.clone().project(this.camera);
     const r = this.canvas.getBoundingClientRect();
     const el = document.createElement("div");
@@ -240,9 +227,9 @@ export class ArenaView {
     el.style.setProperty("--x", `${r.left + ((p.x + 1) / 2) * r.width}px`);
     el.style.setProperty("--y", `${r.top + ((1 - p.y) / 2) * r.height}px`);
     el.style.setProperty("--c", color);
-    el.innerHTML = kind === "clash" ? `<i class="fx-lines"></i><i class="fx-flash"></i><b class="fx-text">${text}</b>` : `<i class="fx-star"></i>`;
+    el.innerHTML = kind === "clash" ? `<i class="fx-glow"></i><i class="fx-flare"></i><i class="fx-glint"></i>` : `<i class="fx-star"></i>`;
     document.body.append(el);
-    setTimeout(() => el.remove(), kind === "clash" ? 1300 : 650);
+    setTimeout(() => el.remove(), 650);
   }
 
   start() {
@@ -332,8 +319,7 @@ export class ArenaView {
       f.life -= dt;
       const mat = f.mesh.material as THREE.MeshBasicMaterial;
       mat.opacity = Math.max(0, (f.life / f.max) * f.fade);
-      if (f.mesh.geometry === PILLAR_GEO) f.mesh.scale.x = f.mesh.scale.z = Math.max(0.05, f.mesh.scale.x + f.grow * dt);
-      else f.mesh.scale.setScalar(Math.max(0.05, f.mesh.scale.x + f.grow * dt));
+      f.mesh.scale.setScalar(Math.max(0.05, f.mesh.scale.x + f.grow * dt));
     }
     this.fx = this.fx.filter((f) => {
       if (f.life > 0) return true;
@@ -362,8 +348,7 @@ export class ArenaView {
     } else this.marker.visible = false;
 
     this.shake *= Math.pow(0.02, dt);
-    this.punch *= Math.pow(0.01, dt);
-    const z = this.zoom * (1 - 0.12 * this.punch);
+    const z = this.zoom;
     this.camera.position.set((Math.random() - 0.5) * this.shake, 21 * z + (Math.random() - 0.5) * this.shake, 17 * z);
     this.camera.lookAt(0, -1, 1);
   }

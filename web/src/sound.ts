@@ -133,13 +133,13 @@ export function dashHit(mine: boolean) {
   tone(1760, 0.15, { type: "triangle", vol: 0.08 * v, delay: 0.02, slideTo: 1200 });
 }
 
-/** Two dashes meet head on: a swelling rush, a huge metallic clang and a boom that rings out. */
+/** Two dashes meet head on: a bright metallic clang, like two blades meeting. */
 export function clash() {
   lastBump = (ac()?.currentTime ?? 0) + 0.5;
   noise(0.18, { vol: 0.35, from: 600, to: 6000, q: 3 }); // the rush into each other
   const d = 0.12;
-  tone(60, 1.1, { type: "sine", vol: 0.9, slideTo: 28, delay: d }); // boom
-  noise(0.5, { vol: 0.6, from: 5000, to: 300, q: 0.6, delay: d });
+  tone(80, 0.35, { type: "sine", vol: 0.5, slideTo: 40, delay: d }); // the weight of the hit
+  noise(0.2, { vol: 0.45, from: 7000, to: 2000, q: 0.8, delay: d }); // scrape
   // clang: a cluster of inharmonic partials, like two blades meeting
   for (const [f, vol] of [[523, 0.16], [1187, 0.12], [1663, 0.1], [2489, 0.08], [3271, 0.06]] as const)
     tone(f, 1.2, { type: "triangle", vol, delay: d, slideTo: f * 0.985 });
