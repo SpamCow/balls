@@ -4,10 +4,10 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { WebSocketServer } from "ws";
-import { toHex, getAddress, type Address, type Hex } from "viem";
+import { toHex, getAddress, isAddress, formatEther, type Address, type Hex } from "viem";
 import { TIERS, CHAINS, JOIN_WINDOW_SEC, TICKET_TTL_SEC } from "../shared/config";
 import { login, verifyToken } from "./auth";
-import { signerAddress, rpcUrl, signTicket } from "./chain";
+import { signerAddress, rpcUrl, signTicket, sweepDeployer, deployerClients } from "./chain";
 import { loadEnv } from "./env";
 import { Room, type Config } from "./room";
 import { ensureContract, type ContractStatus } from "./deploy";
@@ -100,13 +100,27 @@ setInterval(() => {
 
 // ---------------------------------------------------------------- contract
 
+// SWEEP_DEPLOYER_TO=0x...: send the deployer's leftover gas money to that wallet once the
+// contract check is done (for taking the site down). Remove the setting to run normally.
+const sweepTo = process.env.SWEEP_DEPLOYER_TO?.trim();
+let swept = false;
+function sweep() {
+  if (!sweepTo || swept) return;
+  swept = true;
+  if (!isAddress(sweepTo)) return log("SWEEP_DEPLOYER_TO is not a wallet address, so nothing was sent");
+  sweepDeployer(env, getAddress(sweepTo))
+    .then((r) => log(r ? `sent ${formatEther(r.sent)} ETH from the deployer ${deployerClients(env).account.address} to ${sweepTo} in ${r.hash}` : "the deployer has too little ETH to send anything"))
+    .catch((e) => log("couldn't send the deployer's ETH:", (e as Error).message.split("\n")[0]));
+}
+
 let contract: ContractStatus = { state: "checking", address: getAddress(env.CONTRACT_ADDRESS) };
 ensureContract(env, (s) => {
   contract = s;
   if (s.state === "live") {
     log(`escrow live at ${s.address}`);
-    fees.setup();
+    if (!sweepTo) fees.setup();
   }
+  if (s.state !== "checking" && s.state !== "deploying") sweep();
 });
 
 // restore paid matches that were in play when the server stopped

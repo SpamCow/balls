@@ -99,3 +99,20 @@ export async function settleMatch(env: Env, matchId: Hex, winner: Address, sig: 
   }
   return null;
 }
+
+/** Sends everything in the deployer address (minus gas) to `to`. For shutting a site down:
+ *  the deployer only holds gas money, and without it the server can't settle matches. */
+export async function sweepDeployer(env: Env, to: Address): Promise<{ hash: Hex; sent: bigint } | null> {
+  const { account, pub, wallet } = deployerClients(env);
+  return deployerTx(async () => {
+    const balance = await pub.getBalance({ address: account.address });
+    const fees = await pub.estimateFeesPerGas();
+    const gas = await pub.estimateGas({ account, to, value: 1n });
+    const cost = (gas * 3n * fees.maxFeePerGas) / 2n; // headroom for the L1 data part of the fee
+    if (balance <= cost) return null;
+    const value = balance - cost;
+    const hash = await wallet.sendTransaction({ to, value, gas: (gas * 3n) / 2n, maxFeePerGas: fees.maxFeePerGas, maxPriorityFeePerGas: fees.maxPriorityFeePerGas });
+    await pub.waitForTransactionReceipt({ hash });
+    return { hash, sent: value };
+  });
+}

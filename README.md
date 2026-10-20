@@ -76,5 +76,6 @@ Free play works as soon as it's up. To open paid matches, send about 0.005 Robin
 | `PRIVY_APP_ID` | none | email/Google sign-in through Privy, with a built-in wallet per player (deposit, play, cash out). Replaces Connect wallet |
 | `WALLETCONNECT_PROJECT_ID` | none | without Privy only: QR connect for Robinhood Wallet on phones |
 | `DATA_DIR` | none | where paid matches in play, usernames and stats (`profiles.json`) are kept across restarts |
+| `SWEEP_DEPLOYER_TO` | none | shutdown only: on startup, sends the deployer's leftover ETH to this wallet |
 
-Mainnet means real-money play, which is regulated in many places. To turn it on set `CHAIN_ID=4663`, `ALLOW_MAINNET=yes` and `FEE_RECIPIENT`, then fund the deployer. Step-by-step owner instructions are in `SETUP_GUIDE_FOR_AI.md`.
+Mainnet means real-money play, which is regulated in many places. To turn it on set `CHAIN_ID=4663`, `ALLOW_MAINNET=yes` and `FEE_RECIPIENT`, then fund the deployer. Full hosting and handoff instructions, written for an AI agent, are in `SETUP_GUIDE_FOR_AI.md`.
