@@ -1,0 +1,5 @@
+# Caddy gets the HTTPS certificate and passes game traffic (including the
+# WebSocket connections) to the server. Replace the address with your own.
+play.example.com {
+	reverse_proxy 127.0.0.1:8787
+}

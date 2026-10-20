@@ -1,0 +1,34 @@
+# Builds a ready-to-run copy of the game server on every push to main and
+# attaches it to the "latest" release, so hosts without enough memory to build
+# (small VPSes, cPanel) only need Node.js to run it.
+name: Server zip
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Package
+        run: |
+          mkdir -p out/bumper-balls/web
+          cp -r dist out/bumper-balls/
+          cp -r web/dist out/bumper-balls/web/
+          cp hosting/app.js hosting/bumper-balls.service hosting/Caddyfile hosting/example.env out/bumper-balls/
+          cd out && zip -qr ../bumper-balls-server.zip bumper-balls
+      - name: Publish to the latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view latest >/dev/null 2>&1 || gh release create latest --title "Latest server build" --notes "Ready-to-run game server, rebuilt on every push to main. See SETUP_GUIDE_FOR_AI.md."
+          gh release upload latest bumper-balls-server.zip --clobber

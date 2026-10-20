@@ -1,0 +1,20 @@
+# systemd service for a VPS. Install with:
+#   sudo cp bumper-balls.service /etc/systemd/system/
+#   sudo systemctl enable --now bumper-balls
+[Unit]
+Description=Bumper Balls game server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=/opt/bumper-balls
+EnvironmentFile=/etc/bumper-balls.env
+Environment=NODE_ENV=production PORT=8787 DATA_DIR=/var/lib/bumper-balls TRUST_PROXY=1
+ExecStart=/usr/bin/node dist/server.mjs
+Restart=always
+RestartSec=3
+DynamicUser=yes
+StateDirectory=bumper-balls
+
+[Install]
+WantedBy=multi-user.target
