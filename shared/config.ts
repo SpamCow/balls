@@ -3,12 +3,16 @@
 // fee and size in its first ticket.
 export type Tier = { id: string; label: string; entryFeeWei: string; maxPlayers: number };
 
-export const TIERS: Tier[] = [
-  { id: "duel-s", label: "Duel", entryFeeWei: "1000000000000000", maxPlayers: 2 }, // 0.001 ETH
-  { id: "duel-l", label: "High-stakes duel", entryFeeWei: "10000000000000000", maxPlayers: 2 }, // 0.01 ETH
-  { id: "brawl-s", label: "4-player brawl", entryFeeWei: "1000000000000000", maxPlayers: 4 },
-  { id: "brawl-l", label: "High-stakes brawl", entryFeeWei: "10000000000000000", maxPlayers: 4 },
-];
+const FEES = [
+  ["s", "0.001", "1000000000000000"],
+  ["m", "0.01", "10000000000000000"],
+  ["l", "0.1", "100000000000000000"],
+] as const;
+
+export const TIERS: Tier[] = FEES.flatMap(([id, eth, wei]) => [
+  { id: `duel-${id}`, label: `${eth} ETH duel`, entryFeeWei: wei, maxPlayers: 2 },
+  { id: `brawl-${id}`, label: `${eth} ETH brawl`, entryFeeWei: wei, maxPlayers: 4 },
+]);
 
 export const JOIN_WINDOW_SEC = 10 * 60; // seats must fill within this
 export const TICKET_TTL_SEC = 3 * 60;

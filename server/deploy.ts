@@ -28,6 +28,8 @@ export function ensureContract(env: Env, update: (s: ContractStatus) => void) {
   const chain = { id: chainId, name: `chain-${chainId}`, nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: [rpcUrl(env)] } } } as const;
   const pub = createPublicClient({ chain, transport: http(rpcUrl(env)) });
   const wallet = createWalletClient({ account, chain, transport: http(rpcUrl(env)) });
+  // the 5% fee goes here; defaults to the deployer, which the server controls
+  const feeRecipient = (process.env.FEE_RECIPIENT ? getAddress(process.env.FEE_RECIPIENT) : account.address) as Address;
   const autoDeploy = chainId !== 4663 || process.env.ALLOW_MAINNET === "yes";
   let busy = false;
 
@@ -50,7 +52,7 @@ export function ensureContract(env: Env, update: (s: ContractStatus) => void) {
       const hash = await wallet.deployContract({
         abi: bumperBallsAbi,
         bytecode: bumperBallsBytecode,
-        args: [account.address, signerAddress(env), account.address, FEE_BPS, SETTLE_TIMEOUT],
+        args: [account.address, signerAddress(env), feeRecipient, FEE_BPS, SETTLE_TIMEOUT],
       });
       const rcpt = await pub.waitForTransactionReceipt({ hash, timeout: 120_000 });
       if (rcpt.contractAddress && getAddress(rcpt.contractAddress) !== address) throw new Error(`deployed to unexpected ${rcpt.contractAddress}`);

@@ -66,6 +66,7 @@ Free play works as soon as it's up. To open paid matches, send about 0.005 Robin
 | `CHAIN_ID` | `46630` | `4663` is Robinhood Chain mainnet: no auto-deploy there unless `ALLOW_MAINNET=yes` |
 | `RPC_URL` | public RPC for the chain | |
 | `CONTRACT_ADDRESS` | deployer's first contract | set only if you deployed the escrow yourself |
+| `FEE_RECIPIENT` | deployer | your wallet for the 5% fee, fixed when the escrow deploys |
 | `WALLETCONNECT_PROJECT_ID` | none | enables QR connect for Robinhood Wallet on phones |
 | `DATA_DIR` | none | where paid matches in play are remembered across restarts |
 
