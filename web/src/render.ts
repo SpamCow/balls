@@ -11,7 +11,6 @@ const sparkMat = (c: string) => {
   if (!m) sparkMats.set(c, (m = new THREE.MeshBasicMaterial({ color: c })));
   return m;
 };
-const RING_GEO = new THREE.RingGeometry(0.85, 1, 64);
 const GHOST_GEO = new THREE.SphereGeometry(RULES.ballRadius, 20, 14);
 
 const textures = new Map<string, THREE.Texture>();
@@ -47,7 +46,6 @@ export class ArenaView {
   private fx: Fx[] = [];
   private trails = new Map<number, number>(); // seat -> seconds of dash trail left
   private trailGap = 0;
-  private flash: THREE.PointLight;
   private raf = 0;
   private zoom = 1;
   private skins: string[] = [];
@@ -112,11 +110,6 @@ export class ArenaView {
     this.marker.rotation.x = Math.PI;
     this.marker.visible = false;
     this.scene.add(this.marker);
-
-    // stays in the scene at zero so lighting a hit never recompiles shaders
-    this.flash = new THREE.PointLight("#ffffff", 0, 16, 1.5);
-    this.flash.position.y = 2;
-    this.scene.add(this.flash);
 
     addEventListener("resize", () => this.resize());
     this.resize();
@@ -194,31 +187,6 @@ export class ArenaView {
     if (this.balls[seat]) this.trails.set(seat, 0.35);
   }
 
-  /** A dash lands on someone: a shockwave in the dasher's colour and a big spark burst. */
-  dashHit(a: number, b: number, dasher: number, force: number) {
-    const mid = this.mid(a, b);
-    if (!mid) return;
-    const c = COLORS[dasher % COLORS.length];
-    this.shake = Math.min(1.1, this.shake + 0.5 + force * 0.03);
-    this.burst(mid, 26, [c, "#ffffff", "#fff3b0"], 15, 0.65);
-    this.ring(mid, c, 0.4, 4.5, 0.45);
-    this.ring(mid, "#ffffff", 0.2, 2.5, 0.25);
-    this.light(mid, c, 40);
-    this.overlay(mid, "hit", "", c);
-  }
-
-  /** Two dashes meet head on: a sword-clash spark burst where they hit. */
-  clash(a: number, b: number) {
-    const mid = this.mid(a, b);
-    if (!mid) return;
-    mid.y += 0.4;
-    this.shake = Math.min(1.2, this.shake + 0.8);
-    this.burst(mid, 34, ["#ffb347", "#ffd27a", "#ff7a2f", "#fff6d8"], 17, 0.55);
-    this.ring(mid, "#ffd27a", 0.3, 3.5, 0.3);
-    this.light(mid, "#ffb347", 70);
-    this.overlay(mid, "clash", "", "");
-  }
-
   private mid(a: number, b: number) {
     const A = this.balls[a]?.position;
     const B = this.balls[b]?.position;
@@ -235,35 +203,8 @@ export class ArenaView {
     }
   }
 
-  /** A flat shockwave ring spreading out across the floor. */
-  private ring(at: THREE.Vector3, color: string, from: number, to: number, life: number) {
-    const mesh = new THREE.Mesh(RING_GEO, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
-    mesh.rotation.x = -Math.PI / 2;
-    mesh.position.set(at.x, 0.05, at.z);
-    mesh.scale.setScalar(from);
-    this.scene.add(mesh);
-    this.fx.push({ mesh, life, max: life, grow: (to - from) / life, fade: 1 });
-  }
 
-  private light(at: THREE.Vector3, color: string, intensity: number) {
-    this.flash.position.set(at.x, 2, at.z);
-    this.flash.color.set(color);
-    this.flash.intensity = Math.max(this.flash.intensity, intensity);
-  }
 
-  /** Screen-space part of a hit: an impact star, or the clash flare. */
-  private overlay(at: THREE.Vector3, kind: "hit" | "clash", _text: string, color: string) {
-    const p = at.clone().project(this.camera);
-    const r = this.canvas.getBoundingClientRect();
-    const el = document.createElement("div");
-    el.className = `fx-${kind}`;
-    el.style.setProperty("--x", `${r.left + ((p.x + 1) / 2) * r.width}px`);
-    el.style.setProperty("--y", `${r.top + ((1 - p.y) / 2) * r.height}px`);
-    el.style.setProperty("--c", color);
-    el.innerHTML = kind === "clash" ? `<i class="fx-glow"></i><i class="fx-flare"></i><i class="fx-glint"></i>` : `<i class="fx-star"></i>`;
-    document.body.append(el);
-    setTimeout(() => el.remove(), 650);
-  }
 
   start() {
     let last = performance.now();
@@ -360,8 +301,6 @@ export class ArenaView {
       (f.mesh.material as THREE.Material).dispose();
       return false;
     });
-    this.flash.intensity *= Math.pow(0.0005, dt);
-    if (this.flash.intensity < 0.05) this.flash.intensity = 0;
 
     for (const s of this.sparks) {
       s.v.y -= 25 * dt;

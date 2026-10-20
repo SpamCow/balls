@@ -133,20 +133,6 @@ export function dashHit(mine: boolean) {
   tone(1760, 0.15, { type: "triangle", vol: 0.08 * v, delay: 0.02, slideTo: 1200 });
 }
 
-/** Two dashes meet head on: a bright metallic clang, like two blades meeting. */
-export function clash() {
-  lastBump = (ac()?.currentTime ?? 0) + 0.5;
-  noise(0.18, { vol: 0.35, from: 600, to: 6000, q: 3 }); // the rush into each other
-  const d = 0.12;
-  tone(80, 0.35, { type: "sine", vol: 0.5, slideTo: 40, delay: d }); // the weight of the hit
-  noise(0.2, { vol: 0.45, from: 7000, to: 2000, q: 0.8, delay: d }); // scrape
-  // clang: a cluster of inharmonic partials, like two blades meeting
-  for (const [f, vol] of [[523, 0.16], [1187, 0.12], [1663, 0.1], [2489, 0.08], [3271, 0.06]] as const)
-    tone(f, 1.2, { type: "triangle", vol, delay: d, slideTo: f * 0.985 });
-  tone(1046.5, 0.6, { type: "square", vol: 0.05, delay: d + 0.05 });
-  tone(2093, 0.9, { type: "sine", vol: 0.06, delay: d + 0.25 }); // the ring after
-}
-
 /** A ball goes over the edge: a falling whistle, louder when it's you. */
 export function fall(mine: boolean) {
   tone(880, mine ? 0.7 : 0.45, { type: "triangle", vol: mine ? 0.3 : 0.14, slideTo: 110 });

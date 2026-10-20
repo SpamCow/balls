@@ -648,16 +648,9 @@ function onRoomMessage(msg: any) {
       for (const e of msg.e) {
         if (e.t === "bump") {
           const mine = e.a === room?.you || e.b === room?.you;
-          if (e.da && e.db) {
-            view.clash(e.a, e.b);
-            sfx.clash();
-          } else if (e.da || e.db) {
-            view.dashHit(e.a, e.b, e.da ? e.a : e.b, e.force);
-            sfx.dashHit(mine);
-          } else {
-            view.bump(e.a, e.b, e.force);
-            sfx.bump(e.force, mine);
-          }
+          view.bump(e.a, e.b, e.force);
+          if (e.da || e.db) sfx.dashHit(mine);
+          else sfx.bump(e.force, mine);
         }
         if (e.t === "dash") {
           view.dash(e.seat);
