@@ -1,0 +1,8 @@
+node_modules
+dist
+web/dist
+build
+.secrets
+.env
+deployments
+demo/dist.html

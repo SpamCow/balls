@@ -1,0 +1,37 @@
+{
+  "name": "bumper-balls",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "test": "tsx --test test/*.test.ts",
+    "compile": "node scripts/compile.mjs",
+    "build": "node scripts/compile.mjs && vite build && esbuild server/index.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/server.mjs --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\"",
+    "dev": "vite",
+    "deploy:contract": "tsx scripts/deploy.ts",
+    "deploy:site": "vite build && wrangler deploy",
+    "start": "node dist/server.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.6.1",
+    "@walletconnect/ethereum-provider": "^2.26.0",
+    "solc": "^0.8.28",
+    "three": "^0.170.0",
+    "viem": "^2.57.4",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/three": "^0.170.0",
+    "@types/ws": "^8.18.2",
+    "esbuild": "^0.28.2",
+    "hardhat": "^2.29.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^6.4.4"
+  },
+  "type": "module",
+  "private": "true"
+}

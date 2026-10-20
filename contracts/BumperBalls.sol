@@ -1,0 +1,296 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.28;
+
+import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {Ownable, Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+
+/// @title Bumper Balls match escrow
+/// @notice Players stake an equal entry fee into a match. The last ball on the
+/// platform wins the pot minus a protocol fee. Results come from the game
+/// server's signing key, but the operator can never take player funds:
+///  - the winner must be one of the match's players,
+///  - fee and signer are snapshotted per match when it is created,
+///  - the fee is capped at MAX_FEE_BPS,
+///  - if a match doesn't fill or isn't settled in time, every player can
+///    reclaim their full stake without anyone's permission,
+///  - pausing only blocks new joins; refunds and withdrawals always work.
+contract BumperBalls is EIP712, Ownable2Step, ReentrancyGuard {
+    uint16 public constant MAX_FEE_BPS = 1000; // 10% hard cap
+    uint8 public constant MAX_PLAYERS = 4;
+
+    enum Status {
+        None,
+        Open, // waiting for players
+        Full, // all seats paid, match is being played
+        Settled, // winner paid
+        Cancelled // stakes refunded
+    }
+
+    struct Match {
+        uint128 entryFee;
+        uint64 joinDeadline; // seats must fill before this
+        uint64 settleDeadline; // set once full; result must land before this
+        uint16 feeBps;
+        uint8 maxPlayers;
+        uint8 playerCount;
+        Status status;
+        address signer;
+        address winner;
+        address[4] players;
+    }
+
+    bytes32 private constant TICKET_TYPEHASH = keccak256(
+        "JoinTicket(bytes32 matchId,address player,uint256 entryFee,uint8 maxPlayers,uint64 joinDeadline,uint64 ticketExpiry)"
+    );
+    bytes32 private constant RESULT_TYPEHASH = keccak256("MatchResult(bytes32 matchId,address winner)");
+
+    address public signer;
+    address public feeRecipient;
+    uint16 public feeBps;
+    uint64 public settleTimeout;
+    bool public paused;
+
+    mapping(bytes32 => Match) internal matches;
+    mapping(bytes32 => mapping(address => bool)) public refunded;
+    mapping(address => uint256) public balances;
+
+    event MatchCreated(bytes32 indexed matchId, uint256 entryFee, uint8 maxPlayers, uint64 joinDeadline);
+    event PlayerJoined(bytes32 indexed matchId, address indexed player, uint8 seat);
+    event PlayerLeft(bytes32 indexed matchId, address indexed player);
+    event MatchFull(bytes32 indexed matchId, uint64 settleDeadline);
+    event MatchSettled(bytes32 indexed matchId, address indexed winner, uint256 prize, uint256 fee);
+    event MatchCancelled(bytes32 indexed matchId);
+    event Refunded(bytes32 indexed matchId, address indexed player, uint256 amount);
+    event Withdrawn(address indexed account, uint256 amount);
+    event SignerChanged(address signer);
+    event FeeChanged(uint16 feeBps, address feeRecipient);
+    event SettleTimeoutChanged(uint64 settleTimeout);
+    event Paused(bool paused);
+
+    error BadSignature();
+    error TicketExpired();
+    error WrongPlayer();
+    error WrongFee();
+    error BadParams();
+    error MatchNotOpen();
+    error MatchNotFull();
+    error AlreadyJoined();
+    error NotAPlayer();
+    error JoinClosed();
+    error NotRefundable();
+    error NothingToWithdraw();
+    error TransferFailed();
+    error IsPaused();
+
+    constructor(address owner_, address signer_, address feeRecipient_, uint16 feeBps_, uint64 settleTimeout_)
+        EIP712("BumperBalls", "1")
+        Ownable(owner_)
+    {
+        _setSigner(signer_);
+        _setFee(feeBps_, feeRecipient_);
+        _setSettleTimeout(settleTimeout_);
+    }
+
+    // ---------------------------------------------------------------- players
+
+    /// @notice Pay the entry fee and take a seat. The game server hands out a
+    /// signed ticket so players can only join the match it placed them in.
+    function join(
+        bytes32 matchId,
+        uint8 maxPlayers,
+        uint64 joinDeadline,
+        uint64 ticketExpiry,
+        bytes calldata ticketSig
+    ) external payable nonReentrant {
+        if (paused) revert IsPaused();
+        if (block.timestamp > ticketExpiry) revert TicketExpired();
+        Match storage m = matches[matchId];
+
+        bytes32 digest = _hashTypedDataV4(
+            keccak256(abi.encode(TICKET_TYPEHASH, matchId, msg.sender, msg.value, maxPlayers, joinDeadline, ticketExpiry))
+        );
+        address recovered = ECDSA.recover(digest, ticketSig);
+
+        if (m.status == Status.None) {
+            if (recovered != signer) revert BadSignature();
+            if (maxPlayers < 2 || maxPlayers > MAX_PLAYERS) revert BadParams();
+            if (msg.value == 0 || msg.value > type(uint128).max) revert BadParams();
+            if (joinDeadline <= block.timestamp || joinDeadline > block.timestamp + 1 days) revert BadParams();
+            m.entryFee = uint128(msg.value);
+            m.maxPlayers = maxPlayers;
+            m.joinDeadline = joinDeadline;
+            m.feeBps = feeBps;
+            m.signer = signer;
+            m.status = Status.Open;
+            emit MatchCreated(matchId, msg.value, maxPlayers, joinDeadline);
+        } else {
+            if (m.status != Status.Open) revert MatchNotOpen();
+            // Tickets are checked against the match's own signer snapshot.
+            if (recovered != m.signer) revert BadSignature();
+            if (msg.value != m.entryFee) revert WrongFee();
+            if (maxPlayers != m.maxPlayers || joinDeadline != m.joinDeadline) revert BadParams();
+        }
+        if (block.timestamp >= m.joinDeadline) revert JoinClosed();
+        if (_seatOf(m, msg.sender) != type(uint8).max) revert AlreadyJoined();
+
+        uint8 seat = m.playerCount;
+        m.players[seat] = msg.sender;
+        m.playerCount = seat + 1;
+        emit PlayerJoined(matchId, msg.sender, seat);
+
+        if (m.playerCount == m.maxPlayers) {
+            m.status = Status.Full;
+            m.settleDeadline = uint64(block.timestamp) + settleTimeout;
+            emit MatchFull(matchId, m.settleDeadline);
+        }
+    }
+
+    /// @notice Leave a match that hasn't filled yet and get the stake back.
+    function leave(bytes32 matchId) external nonReentrant {
+        Match storage m = matches[matchId];
+        if (m.status != Status.Open) revert MatchNotOpen();
+        uint8 seat = _seatOf(m, msg.sender);
+        if (seat == type(uint8).max) revert NotAPlayer();
+
+        uint8 last = m.playerCount - 1;
+        m.players[seat] = m.players[last];
+        m.players[last] = address(0);
+        m.playerCount = last;
+        emit PlayerLeft(matchId, msg.sender);
+
+        _send(msg.sender, m.entryFee);
+    }
+
+    /// @notice Record a server-signed result. Anyone may submit it. A zero
+    /// winner means the server called the match off, and everyone is refunded.
+    function settle(bytes32 matchId, address winner, bytes calldata resultSig) public {
+        Match storage m = matches[matchId];
+        if (m.status != Status.Full) revert MatchNotFull();
+        if (block.timestamp > m.settleDeadline) revert NotRefundable(); // too late, refunds only
+
+        bytes32 digest = _hashTypedDataV4(keccak256(abi.encode(RESULT_TYPEHASH, matchId, winner)));
+        if (ECDSA.recover(digest, resultSig) != m.signer) revert BadSignature();
+
+        if (winner == address(0)) {
+            m.status = Status.Cancelled;
+            emit MatchCancelled(matchId);
+            uint256 n = m.playerCount;
+            for (uint256 i; i < n; ++i) {
+                address p = m.players[i];
+                refunded[matchId][p] = true;
+                balances[p] += m.entryFee;
+            }
+            return;
+        }
+
+        if (_seatOf(m, winner) == type(uint8).max) revert NotAPlayer();
+        m.status = Status.Settled;
+        m.winner = winner;
+        uint256 pot = uint256(m.entryFee) * m.playerCount;
+        uint256 fee = (pot * m.feeBps) / 10_000;
+        balances[winner] += pot - fee;
+        balances[feeRecipient] += fee;
+        emit MatchSettled(matchId, winner, pot - fee, fee);
+    }
+
+    /// @notice Settle (if needed) and withdraw the caller's balance in one go.
+    function claim(bytes32 matchId, address winner, bytes calldata resultSig) external {
+        if (matches[matchId].status == Status.Full) settle(matchId, winner, resultSig);
+        withdraw();
+    }
+
+    /// @notice Reclaim a stake from a match that never filled before its join
+    /// deadline, or was never settled before its settle deadline.
+    function refund(bytes32 matchId) external nonReentrant {
+        Match storage m = matches[matchId];
+        bool stale = (m.status == Status.Open && block.timestamp >= m.joinDeadline)
+            || (m.status == Status.Full && block.timestamp > m.settleDeadline)
+            || m.status == Status.Cancelled;
+        if (!stale) revert NotRefundable();
+        if (_seatOf(m, msg.sender) == type(uint8).max) revert NotAPlayer();
+        if (refunded[matchId][msg.sender]) revert NotRefundable();
+        if (m.status != Status.Cancelled) {
+            m.status = Status.Cancelled;
+            emit MatchCancelled(matchId);
+        }
+        refunded[matchId][msg.sender] = true;
+        emit Refunded(matchId, msg.sender, m.entryFee);
+        _send(msg.sender, m.entryFee);
+    }
+
+    function withdraw() public nonReentrant {
+        uint256 amount = balances[msg.sender];
+        if (amount == 0) revert NothingToWithdraw();
+        balances[msg.sender] = 0;
+        emit Withdrawn(msg.sender, amount);
+        _send(msg.sender, amount);
+    }
+
+    // ------------------------------------------------------------------ views
+
+    function getMatch(bytes32 matchId) external view returns (Match memory) {
+        return matches[matchId];
+    }
+
+    function domainSeparator() external view returns (bytes32) {
+        return _domainSeparatorV4();
+    }
+
+    // ------------------------------------------------------------------ admin
+
+    /// @dev Only affects matches created after the change.
+    function setSigner(address signer_) external onlyOwner {
+        _setSigner(signer_);
+    }
+
+    /// @dev Only affects matches created after the change. Capped at 10%.
+    function setFee(uint16 feeBps_, address feeRecipient_) external onlyOwner {
+        _setFee(feeBps_, feeRecipient_);
+    }
+
+    function setSettleTimeout(uint64 settleTimeout_) external onlyOwner {
+        _setSettleTimeout(settleTimeout_);
+    }
+
+    /// @notice Blocks new joins only. Refunds, settlement and withdrawals keep working.
+    function setPaused(bool paused_) external onlyOwner {
+        paused = paused_;
+        emit Paused(paused_);
+    }
+
+    // --------------------------------------------------------------- internal
+
+    function _setSigner(address signer_) internal {
+        if (signer_ == address(0)) revert BadParams();
+        signer = signer_;
+        emit SignerChanged(signer_);
+    }
+
+    function _setFee(uint16 feeBps_, address feeRecipient_) internal {
+        if (feeBps_ > MAX_FEE_BPS || feeRecipient_ == address(0)) revert BadParams();
+        feeBps = feeBps_;
+        feeRecipient = feeRecipient_;
+        emit FeeChanged(feeBps_, feeRecipient_);
+    }
+
+    function _setSettleTimeout(uint64 settleTimeout_) internal {
+        if (settleTimeout_ < 5 minutes || settleTimeout_ > 1 days) revert BadParams();
+        settleTimeout = settleTimeout_;
+        emit SettleTimeoutChanged(settleTimeout_);
+    }
+
+    function _seatOf(Match storage m, address who) internal view returns (uint8) {
+        uint8 n = m.playerCount;
+        for (uint8 i; i < n; ++i) {
+            if (m.players[i] == who) return i;
+        }
+        return type(uint8).max;
+    }
+
+    function _send(address to, uint256 amount) internal {
+        (bool ok,) = to.call{value: amount}("");
+        if (!ok) revert TransferFailed();
+    }
+}

@@ -1,0 +1,19 @@
+# Render Blueprint: New -> Blueprint -> pick this repo. Nothing to paste:
+# Render generates SERVER_SECRET and the server derives its keys from it.
+services:
+  - type: web
+    name: bumper-balls
+    runtime: docker
+    plan: starter
+    numInstances: 1          # exactly one: rooms live in memory
+    healthCheckPath: /healthz
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: SERVER_SECRET   # never change it once paid matches exist: the escrow and signer keys come from it
+        generateValue: true
+      - key: CHAIN_ID
+        value: "46630"       # Robinhood Chain testnet
+      # Optional: WALLETCONNECT_PROJECT_ID (lets Robinhood Wallet on a phone connect by QR)

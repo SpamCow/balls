@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Bumper Balls</title>
+    <meta name="description" content="Online multiplayer Bumper Balls on Robinhood Chain. Knock everyone off the platform and take the pot." />
+    <link rel="icon" href="/icon.svg" />
+    <meta property="og:title" content="Bumper Balls" />
+    <meta property="og:description" content="Knock everyone off the platform. Last ball standing takes the pot." />
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand"><span class="logo"></span>Bumper Balls</div>
+      <div class="top-right">
+        <span id="net" class="pill net"></span>
+        <button id="wallet-btn" class="btn">Connect wallet</button>
+      </div>
+    </header>
+
+    <main id="home" hidden>
+      <section class="hero">
+        <h1>Last ball standing<br />takes the pot.</h1>
+        <p class="muted">Everyone pays the same entry into the smart contract. Shove the other balls off a platform that keeps shrinking. Play free with friends, or put testnet ETH on it and the winner takes the pot.</p>
+        <div class="hero-acts">
+          <button id="friends-btn" class="btn big-btn">Play with friends</button>
+          <button id="practice-btn" class="btn big-btn ghost">Quick game vs bots</button>
+        </div>
+        <div class="join-row">
+          <label class="field"><span>Your name</span><input id="nick" maxlength="16" placeholder="Player" autocomplete="nickname" /></label>
+          <form id="join-form" class="field">
+            <span>Have a room code?</span>
+            <div class="inline"><input id="join-code" maxlength="5" placeholder="ab3cd" autocapitalize="off" spellcheck="false" /><button class="btn small">Join</button></div>
+          </form>
+        </div>
+      </section>
+
+      <h3>Play for testnet ETH</h3>
+      <p id="paid-note" class="muted small" hidden></p>
+      <section id="tiers" class="tiers"></section>
+
+      <h3>Your matches</h3>
+      <section id="mine" class="panel"></section>
+
+      <section class="how panel">
+        <h3>How it's kept fair</h3>
+        <ul>
+          <li>The game server runs the physics. Your browser only sends which way you're steering, so nobody can cheat by editing the game.</li>
+          <li>Entry fees sit in the <a id="contract-link" target="_blank" rel="noopener">contract</a>, not with us. It only pays a winner who was actually in the match, using a result signed by the game server for that exact match.</li>
+          <li>If a match doesn't fill in 10 minutes, or isn't settled in 30, every player can take their entry back themselves. No one can block that.</li>
+          <li>You can leave a match and get your entry back any time before it fills.</li>
+        </ul>
+        <p class="muted small">Testnet only. Testnet ETH has no value.</p>
+      </section>
+    </main>
+
+    <section id="match" hidden>
+      <canvas id="arena"></canvas>
+      <div class="hud">
+        <div class="hud-top">
+          <button id="back" class="btn ghost small">← Lobby</button>
+          <span id="pot" class="pill"></span>
+          <button id="share" class="btn ghost small" hidden>Copy invite link</button>
+        </div>
+        <div id="seats" class="seats"></div>
+        <div id="friends-bar" class="friends-bar" hidden>
+          <button id="copy-invite" class="btn ghost small">Copy invite link</button>
+          <label id="bots-label" class="check"><input type="checkbox" id="bots" checked /> Fill empty seats with bots</label>
+          <button id="start-btn" class="btn small">Start</button>
+        </div>
+        <div id="status" class="status"></div>
+        <div id="result" class="result panel" hidden></div>
+        <div id="controls-hint" class="hint" hidden>WASD / arrows to roll · Space to dash</div>
+        <div id="dash-meter" class="dash-meter" hidden></div>
+      </div>
+      <div class="stick"><div class="knob"></div></div>
+      <button class="dash-btn">DASH</button>
+    </section>
+
+    <dialog id="wallet-dialog">
+      <form method="dialog" class="dialog-head"><h3>Connect a wallet</h3><button class="x" aria-label="Close">×</button></form>
+      <div id="wallet-list"></div>
+      <p class="muted small">On your phone? Open this page inside Robinhood Wallet's browser and pick it here.</p>
+    </dialog>
+
+    <div id="toasts"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
