@@ -208,6 +208,8 @@ export class Room {
       round: this.round,
       bots: [...this.bots],
       startsAt: this.startsAt,
+      // relative, so a player's clock being off doesn't shift their countdown
+      startsIn: this.phase === "countdown" ? Math.max(0, this.startsAt - Date.now()) : 0,
       spectators: this.conns.size,
       result: this.result,
     };

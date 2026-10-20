@@ -391,6 +391,8 @@ function onRoomMessage(msg: any) {
     case "hello":
     case "seats": {
       room = msg as RoomState;
+      // the server sends time left, not its clock: count down on our own clock
+      room.startsAt = msg.phase === "countdown" ? Date.now() + Number(msg.startsIn || 0) : 0;
       const n = playerCount(room);
       const inRound = room.phase === "playing" || room.phase === "countdown" || room.phase === "over";
       if (view.players !== n && !(room.mode === "friends" && inRound)) view.setPlayers(n, room.you);
