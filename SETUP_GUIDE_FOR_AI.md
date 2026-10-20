@@ -211,6 +211,8 @@ Tell the owner: Privy holds the login and secures the players' built-in wallet k
 3. Open the site. The section now says **Play for ETH** and shows a deployer address. Send about **0.005 ETH on Robinhood Chain mainnet** (not Ethereum mainnet or another network) to that address. This pays the gas for setting up the contract; leftovers stay in that deployer address.
 4. Within about a minute the bet buttons unlock. The page's contract link opens the contract on the Robinhood Chain explorer.
 
+**Collecting the house cut.** The 5% from each paid match is held in the contract for the `FEE_RECIPIENT` wallet; it is not sent there by itself. The server settles every finished match on its own (paying a tiny gas fee from the deployer address), so the cut is counted even if the winner never presses Claim. To collect it, the owner opens the game site, clicks **Collect the house cut** at the bottom of the home page (or goes to `https://<their game address>/#fees`), connects the fee wallet with a browser wallet such as MetaMask or Rabby, and presses **Collect**. Keep a little ETH in the deployer address (0.002 is plenty for many matches) so the server can keep settling; the address shows in the server log and was the one funded above.
+
 If the site shows a message instead of unlocking (Step 4c), it says what is missing: `Set ALLOW_MAINNET=yes...`, `Set FEE_RECIPIENT...`, or `Send at least 0.002 ETH to the deployer`. Fix that setting and wait a minute.
 
 Changing `CHAIN_ID` from testnet to mainnet sets up a brand-new contract on mainnet; that's expected. The testnet contract stays on testnet.

@@ -116,7 +116,8 @@ try {
   await pub.simulateContract({ account: loser.acct, address: cfg.contract, abi: bumperBallsAbi, functionName: "claim", args: [matchId!, loser.acct.address, over.sig] });
   throw new Error("loser claim should fail");
 } catch (e: any) {
-  if (!/BadSignature/.test(e.message)) throw e;
+  // BadSignature if the match is still unsettled; NothingToWithdraw once the server settled it
+  if (!/BadSignature|NothingToWithdraw/.test(e.message)) throw e;
 }
 console.log("✓ loser can't reuse the winner's signature");
 
@@ -127,6 +128,18 @@ const rc = await pub.waitForTransactionReceipt({ hash });
 const gained = (await pub.getBalance({ address: winner.acct.address })) - before + rc.gasUsed * rc.effectiveGasPrice;
 console.log(`✓ winner claimed ${Number(gained) / 1e18} ETH`);
 if (gained !== 1_900_000_000_000_000n) throw new Error(`unexpected payout ${gained}`);
+
+// the server settles finished matches itself, so the house cut is credited without anyone claiming
+{
+  const feeTo = (await pub.readContract({ address: cfg.contract, abi: bumperBallsAbi, functionName: "feeRecipient" })) as Address;
+  let fee = 0n;
+  for (let i = 0; i < 30 && fee === 0n; i++) {
+    fee = (await pub.readContract({ address: cfg.contract, abi: bumperBallsAbi, functionName: "balances", args: [feeTo] })) as bigint;
+    if (fee === 0n) await new Promise((r) => setTimeout(r, 1000));
+  }
+  if (fee < 100_000_000_000_000n) throw new Error(`house cut not credited: ${fee}`);
+  console.log(`✓ house cut credited to the fee wallet: ${Number(fee) / 1e18} ETH waiting`);
+}
 
 const status = await (await fetch(`${BASE}/api/match/${matchId}`)).json();
 if (status.phase !== "over" || status.joinable) throw new Error("room state wrong after match");

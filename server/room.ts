@@ -6,7 +6,9 @@ import type { WebSocket } from "ws";
 import { createSim, step, setInput, cleanInput, snapshot, botInput, TICK_HZ, type Sim } from "../shared/physics";
 import { COUNTDOWN_SEC } from "../shared/config";
 import { MatchStatus } from "../shared/eip712";
-import { readMatch, signResult } from "./chain";
+import { readMatch, settleMatch, signResult } from "./chain";
+
+const log = (...a: unknown[]) => console.log(new Date().toISOString(), ...a);
 import type { Env } from "./env";
 
 export type Phase = "waiting" | "countdown" | "playing" | "over" | "expired";
@@ -326,6 +328,10 @@ export class Room {
       winner = winnerSeat === null ? zeroAddress : (this.seats[winnerSeat] as Address);
       sig = await signResult(this.env, cfg.matchId as Hex, winner);
       this.persist.activePaid(cfg.matchId, false);
+      const result = sig;
+      settleMatch(this.env, cfg.matchId as Hex, winner, result)
+        .then((hash) => hash && log(`settled ${cfg.matchId} in ${hash}`))
+        .catch((e) => log(`couldn't settle ${cfg.matchId}: ${(e as Error).message.split("\n")[0]}`));
     } else if (winnerSeat !== null && !this.bots.has(winnerSeat)) {
       const s = this.seats[winnerSeat];
       winner = (s && !s.startsWith("guest:") ? s : zeroAddress) as Address;

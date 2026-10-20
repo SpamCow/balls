@@ -1,5 +1,5 @@
 import "./style.css";
-import { defineChain, formatEther, getAddress, zeroAddress, type Address, type Chain, type EIP1193Provider, type Hex } from "viem";
+import { createPublicClient, http, defineChain, formatEther, getAddress, zeroAddress, type Address, type Chain, type EIP1193Provider, type Hex } from "viem";
 import { bumperBallsAbi } from "../../shared/abi";
 import { COLORS, type Tier } from "../../shared/config";
 import { SNAP_STRIDE } from "../../shared/physics";
@@ -258,6 +258,7 @@ async function cashOut(e: Event) {
 // --------------------------------------------------------------------- home
 
 async function renderHome() {
+  $("#fees").hidden = true;
   $("#home").hidden = false;
   $("#match").hidden = true;
   const tiers = $("#tiers");
@@ -446,6 +447,7 @@ function openRoom(id: string) {
   ws?.close();
   room = null;
   $("#home").hidden = true;
+  $("#fees").hidden = true;
   $("#match").hidden = false;
   $("#result").hidden = true;
   setStatus("Connecting…");
@@ -659,6 +661,77 @@ function linkButtons(tier: Tier) {
   });
 }
 
+// ------------------------------------------------------------- house cut
+
+// The fee wallet is usually the owner's own browser wallet, not a Privy one, so
+// this page connects it on its own without touching the player sign-in.
+let feeWallet: { provider: EIP1193Provider; account: Address } | null = null;
+
+async function openFees() {
+  ws?.close();
+  $("#home").hidden = true;
+  $("#match").hidden = true;
+  $("#fees").hidden = false;
+  const actions = $("#fee-actions");
+  const pub = createPublicClient({ chain, transport: http(cfg.rpcUrl) });
+  let recipient: Address;
+  let owed = 0n;
+  try {
+    recipient = (await pub.readContract({ address: cfg.contract, abi: bumperBallsAbi, functionName: "feeRecipient" })) as Address;
+    owed = (await pub.readContract({ address: cfg.contract, abi: bumperBallsAbi, functionName: "balances", args: [recipient] })) as bigint;
+  } catch {
+    $("#fee-addr").textContent = "";
+    $("#fee-bal").textContent = "…";
+    actions.innerHTML = `<p class="muted">The contract isn't set up yet, so there's nothing to collect.</p>`;
+    return;
+  }
+  $("#fee-addr").textContent = recipient;
+  $("#fee-bal").textContent = eth(owed);
+  if (feeWallet && feeWallet.account.toLowerCase() === recipient.toLowerCase()) {
+    actions.innerHTML = owed > 0n ? `<button class="btn" id="fee-collect">Collect ${eth(owed)}</button>` : `<p class="muted">Nothing to collect yet. Fees show up here a moment after each paid match ends.</p>`;
+    $("#fee-collect")?.addEventListener("click", collectFees);
+    return;
+  }
+  const opts = walletOptions(cfg.walletConnectProjectId, chain);
+  actions.innerHTML = feeWallet
+    ? `<p class="note">Connected ${esc(short(feeWallet.account))}, which isn't the fee wallet. Switch to ${esc(short(recipient))} in your wallet and connect again.</p>`
+    : "";
+  if (!opts.length) actions.innerHTML += `<p class="muted">No browser wallet found. Install MetaMask or Rabby, add the fee wallet to it, and reload this page.</p>`;
+  for (const o of opts) {
+    const b = document.createElement("button");
+    b.className = "wallet-opt";
+    b.innerHTML = `${o.icon ? `<img src="${esc(o.icon)}" alt="">` : `<span class="dot"></span>`}<span>Connect ${esc(o.name)}</span>`;
+    b.onclick = async () => {
+      try {
+        const p = await o.connect();
+        const [a] = (await p.request({ method: "eth_requestAccounts" })) as Address[];
+        await ensureChain(p, chain);
+        feeWallet = { provider: p, account: getAddress(a) };
+        openFees();
+      } catch (e) {
+        toast(errMsg(e), "error");
+      }
+    };
+    actions.append(b);
+  }
+}
+
+async function collectFees() {
+  if (!feeWallet) return;
+  try {
+    const { wallet, pub } = clients(feeWallet.provider, feeWallet.account, chain);
+    await ensureChain(feeWallet.provider, chain);
+    const { request } = await pub.simulateContract({ account: feeWallet.account, address: cfg.contract, abi: bumperBallsAbi, functionName: "withdraw", args: [] });
+    const hash = await wallet.writeContract(request);
+    toast("Collecting…");
+    await pub.waitForTransactionReceipt({ hash });
+    toast("Collected. The ETH is in the fee wallet.", "ok");
+  } catch (e) {
+    toast(errMsg(e), "error");
+  }
+  openFees();
+}
+
 function setStatus(html: string) {
   $("#status").innerHTML = html;
   $("#status").hidden = !html;
@@ -806,8 +879,20 @@ async function boot() {
     : "Testnet only. Testnet ETH has no value.";
   $("#contract-link").setAttribute("href", cfg.explorer ? `${cfg.explorer}/address/${cfg.contract}` : "#");
   renderWallet();
+  $("#fees-link").onclick = (e) => {
+    e.preventDefault();
+    history.replaceState(null, "", "#fees");
+    openFees();
+  };
+  $("#fees-back").onclick = (e) => {
+    e.preventDefault();
+    history.replaceState(null, "", location.pathname + location.search);
+    $("#fees").hidden = true;
+    renderHome();
+  };
   const hash = location.hash.slice(1);
-  if (hash) openRoom(hash);
+  if (hash === "fees") openFees();
+  else if (hash) openRoom(hash);
   else renderHome();
 }
 

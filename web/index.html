@@ -51,6 +51,18 @@
           <li>You can leave a match and get your entry back any time before it fills.</li>
         </ul>
         <p id="net-note" class="muted small"></p>
+        <p class="muted small">Running this site? <a href="#fees" id="fees-link">Collect the house cut</a>.</p>
+      </section>
+    </main>
+
+    <main id="fees" hidden>
+      <p><a href="#" id="fees-back">← Back to the game</a></p>
+      <h2>House cut</h2>
+      <section class="panel">
+        <p class="muted small">The 5% from every paid match is held in the contract for the fee wallet. Only that wallet can collect it, so connect it here with a browser wallet such as MetaMask or Rabby.</p>
+        <div class="acct-bal"><span class="muted small">Fee wallet</span><code id="fee-addr" class="mono small"></code></div>
+        <div class="acct-bal"><span class="muted small">Ready to collect</span><b id="fee-bal">…</b></div>
+        <div id="fee-actions" style="margin-top:14px"></div>
       </section>
     </main>
 
