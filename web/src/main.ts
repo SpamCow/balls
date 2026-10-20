@@ -967,15 +967,14 @@ function renderPhase() {
   $("#controls-hint").hidden = room.phase !== "countdown" && room.phase !== "playing";
   $("#dash-meter").hidden = room.phase !== "playing" || room.you === null;
   const battle = room.variant === "battle";
-  $("#controls-hint").textContent = battle ? "WASD / arrows: roll · Space: dash · E: weapon" : "WASD / arrows: roll · Space: dash";
+  $("#controls-hint").textContent = battle ? "WASD - move · Space - dash · E - use weapon" : "WASD - move · Space - dash";
   // battle how-to: shown through the countdown and the first seconds of play, for a player's first few battles
   const help = $("#battle-help");
   if (matchMedia("(pointer: coarse)").matches) $(".use-key").textContent = "❓";
   if (battle && room.phase === "countdown" && room.you !== null && help.hidden && helpCount() < 5) {
     help.hidden = false;
     helpCount(helpCount() + 1);
-  } else if (!battle || (room.phase !== "countdown" && room.phase !== "playing")) help.hidden = true;
-  else if (room.phase === "playing" && !help.hidden) setTimeout(() => (help.hidden = true), 4000);
+  } else if (room.phase !== "countdown") help.hidden = true; // your health bar takes its place once play starts
   renderWeapon();
   if (room.phase === "waiting") {
     if (room.mode === "paid") {
