@@ -278,7 +278,7 @@ async function renderHome() {
   const note = $("#paid-note");
   note.hidden = cfg.paid?.state === "live";
   if (cfg.paid?.state === "needs-funds")
-    note.innerHTML = `Paid matches open once the game's escrow is set up. It needs a little ETH on ${esc(cfg.chainName ?? "the chain")} sent to <span class="mono">${esc(cfg.paid.deployer ?? "")}</span> (it has ${esc(cfg.paid.balance ?? "0")} now).`;
+    note.innerHTML = `Paid matches open once the game's escrow is set up. It needs at least 0.002 ETH on ${esc(cfg.chainName ?? "the chain")} sent to <span class="mono">${esc(cfg.paid.deployer ?? "")}</span> (it has ${esc(cfg.paid.balance ?? "0")} now). This page updates by itself once it's ready.`;
   else if (cfg.paid?.state === "deploying") note.textContent = "Setting up the escrow contract. Paid matches open in a minute.";
   else note.textContent = "Paid matches aren't open right now. Free play works.";
   await renderMine();
@@ -287,7 +287,11 @@ async function renderHome() {
 async function renderMine() {
   const box = $("#mine");
   if (!account || !provider) {
-    box.innerHTML = `<p class="muted">Connect a wallet to see your matches and winnings.</p>`;
+    box.innerHTML = `<p class="muted">${cfg.privyAppId ? "Sign in" : "Connect a wallet"} to see your matches and winnings.</p>`;
+    return;
+  }
+  if (cfg.paid?.state !== "live") {
+    box.innerHTML = `<p class="muted">Your paid matches and winnings show up here once paid matches open.</p>`;
     return;
   }
   const { pub } = clients(provider, account, chain);
@@ -454,6 +458,7 @@ function openRoom(id: string) {
   sock.onclose = (e) => {
     if (ws !== sock) return;
     if (e.code === 4000) setStatus("This match is open in another tab.");
+    else if (!room && id.startsWith("0x")) paidLinkHelp(id);
     else if (!room) setStatus(id.startsWith("friends-") ? "No room with that code. Check it and try again." : "That match isn't available any more.");
     else if (room?.phase !== "over" && room?.phase !== "expired") {
       setStatus("Connection lost. Reconnecting…");
@@ -621,6 +626,39 @@ function renderPhase() {
   }
 }
 
+// Someone opened a shared link to a paid match. Watching needs a signed-in
+// player, so explain that and offer to join it rather than calling it gone.
+async function paidLinkHelp(id: string) {
+  const r = await fetch(`/api/match/${id}`).catch(() => null);
+  const m = r?.ok ? ((await r.json()) as RoomState & { joinable: boolean }) : null;
+  const tier = cfg.tiers.find((t) => t.id === m?.tierId);
+  if (!m || !tier) return setStatus("That match isn't available any more.");
+  if (!m.joinable) return setStatus(`That ${esc(tier.label)} is already full or finished. <button class="btn small" id="link-home">Find another match</button>`), linkButtons(tier);
+  const signIn = cfg.privyAppId ? "Sign in" : "Connect a wallet";
+  setStatus(
+    account
+      ? `A friend invited you to a ${esc(tier.label)}. <button class="btn small" id="link-join">Join for ${eth(tier.entryFeeWei)}</button>`
+      : `A friend invited you to a ${esc(tier.label)}. ${signIn} to join it for ${eth(tier.entryFeeWei)}. <button class="btn small" id="link-signin">${signIn}</button>`,
+  );
+  linkButtons(tier);
+}
+
+function linkButtons(tier: Tier) {
+  $("#link-home")?.addEventListener("click", leaveRoom);
+  $("#link-join")?.addEventListener("click", () => joinPaid(tier));
+  $("#link-signin")?.addEventListener("click", () => {
+    openWalletPicker();
+    // once signed in, swap the button for the join button
+    const t = setInterval(() => {
+      if (!account) return;
+      clearInterval(t);
+      setStatus(`Signed in. <button class="btn small" id="link-join">Join the ${esc(tier.label)} for ${eth(tier.entryFeeWei)}</button>`);
+      linkButtons(tier);
+    }, 500);
+    setTimeout(() => clearInterval(t), 300_000);
+  });
+}
+
 function setStatus(html: string) {
   $("#status").innerHTML = html;
   $("#status").hidden = !html;
@@ -683,6 +721,16 @@ function beginFriends() {
 
 async function boot() {
   cfg = await (await fetch("/api/config")).json();
+  // until the escrow is live, keep checking so the bet buttons unlock without a reload
+  const watchPaid = setInterval(async () => {
+    if (cfg.paid?.state === "live") return clearInterval(watchPaid);
+    try {
+      const next = (await (await fetch("/api/config")).json()) as Config;
+      const changed = JSON.stringify(next.paid) !== JSON.stringify(cfg.paid);
+      cfg = { ...cfg, paid: next.paid, contract: next.contract };
+      if (changed && !$("#home").hidden) renderHome();
+    } catch {}
+  }, 10000);
   chain = defineChain({
     id: cfg.chainId,
     name: cfg.chainName ?? `Chain ${cfg.chainId}`,

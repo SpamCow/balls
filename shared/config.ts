@@ -27,7 +27,7 @@ export const CHAINS: Record<number, { name: string; rpc: string; explorer: strin
   4663: {
     name: "Robinhood Chain",
     rpc: "https://rpc.mainnet.chain.robinhood.com",
-    explorer: "https://robinhoodchain.blockscout.com",
+    explorer: "https://robin.etherscan.io",
   },
   31337: { name: "Local devnet", rpc: "http://127.0.0.1:8545", explorer: "" },
 };
