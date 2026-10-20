@@ -712,14 +712,17 @@ function renderWeapon() {
   const f = room?.variant === "battle" && room.you !== null && room.phase === "playing" ? view.fighter(room.you) : null;
   const slot = $("#weapon");
   const btn = $(".use-btn");
-  slot.hidden = btn.hidden = !f;
-  if (!f) return;
+  slot.hidden = btn.hidden = $("#my-hp").hidden = !f;
+  if (!f) {
+    lastHp = lastWeaponId = -1;
+    return;
+  }
   const touch = matchMedia("(pointer: coarse)").matches;
-  const key = touch ? "tap the weapon button" : "E";
+  const key = touch ? "Tap the weapon button" : "Press E";
   const has = f.weapon >= 0;
   const left = f.on > 0 ? `${Math.ceil(f.on / 60)}s` : f.weapon === 1 || f.weapon === 5 ? `×${f.ammo}` : "";
   const html = has
-    ? `<span class="ic">${WEAPON_ICON[f.weapon]}</span><b>${WEAPON_NAME[f.weapon]}</b>${left ? `<span>${left}</span>` : ""}${f.on > 0 ? "" : `<span class="muted">${key}</span>`}`
+    ? `<span class="ic">${WEAPON_ICON[f.weapon]}</span><b>${WEAPON_NAME[f.weapon]}</b>${left ? `<span>${left}</span>` : ""}${f.on > 0 ? "" : `<span class="key">${key}</span>`}`
     : `<span>Grab a ❓ crate for a weapon</span>`;
   if (html !== lastWeapon) {
     lastWeapon = html;
@@ -729,6 +732,32 @@ function renderWeapon() {
     btn.querySelector(".use-icon")!.textContent = has ? WEAPON_ICON[f.weapon] : "❓";
     btn.querySelector(".use-ammo")!.textContent = left;
   }
+  // flash the slot when a new weapon is picked up
+  if (has && f.weapon !== lastWeaponId) {
+    slot.classList.remove("flash");
+    void slot.offsetWidth;
+    slot.classList.add("flash");
+  }
+  lastWeaponId = has ? f.weapon : -1;
+  renderHp(f.hp);
+}
+let lastWeaponId = -1;
+
+/** Battle mode: your own health, at the top of the screen. */
+let lastHp = -1;
+function renderHp(hp: number) {
+  const el = $("#my-hp");
+  if (hp === lastHp) return;
+  if (lastHp > hp) {
+    el.classList.remove("hurt");
+    void el.offsetWidth;
+    el.classList.add("hurt");
+  }
+  lastHp = hp;
+  const p = Math.max(0, Math.min(1, hp / 100));
+  el.style.setProperty("--hp", String(p));
+  el.style.setProperty("--hp-color", p > 0.5 ? "#4ade80" : p > 0.25 ? "#facc15" : "#ef4444");
+  el.querySelector("b")!.textContent = String(hp);
 }
 
 /** Weapon pressed: send it now rather than on the next input tick. */
@@ -888,6 +917,15 @@ function renderSeats() {
   $("#battle-label").hidden = !isHost;
 }
 
+function helpCount(set?: number): number {
+  try {
+    if (set !== undefined) localStorage.setItem("battleHelpSeen", String(set));
+    return Number(localStorage.getItem("battleHelpSeen") || 0);
+  } catch {
+    return 0;
+  }
+}
+
 let countdownTimer: ReturnType<typeof setInterval> | null = null;
 let lastBeep = 0;
 function renderPhase() {
@@ -897,6 +935,14 @@ function renderPhase() {
   $("#dash-meter").hidden = room.phase !== "playing" || room.you === null;
   const battle = room.variant === "battle";
   $("#controls-hint").textContent = battle ? "WASD / arrows to roll · Space to dash · E or Shift to use your weapon" : "WASD / arrows to roll · Space to dash";
+  // battle how-to: shown through the countdown and the first seconds of play, for a player's first few battles
+  const help = $("#battle-help");
+  if (matchMedia("(pointer: coarse)").matches) $(".use-key").textContent = "the weapon button";
+  if (battle && room.phase === "countdown" && room.you !== null && help.hidden && helpCount() < 5) {
+    help.hidden = false;
+    helpCount(helpCount() + 1);
+  } else if (!battle || (room.phase !== "countdown" && room.phase !== "playing")) help.hidden = true;
+  else if (room.phase === "playing" && !help.hidden) setTimeout(() => (help.hidden = true), 4000);
   renderWeapon();
   if (room.phase === "waiting") {
     if (room.mode === "paid") {

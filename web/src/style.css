@@ -113,6 +113,18 @@ h3 { margin: 28px 0 12px; }
 .weapon-slot { position: absolute; bottom: 64px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; align-items: center; padding: 6px 12px; border-radius: 999px; background: #0008; font-size: 0.9rem; white-space: nowrap; }
 .weapon-slot .ic { font-size: 1.3rem; }
 .weapon-slot.empty { color: var(--muted); }
+.weapon-slot .key { background: #ffb703; color: #000; font-weight: 800; border-radius: 6px; padding: 1px 7px; }
+.weapon-slot.flash { animation: weapon-flash 0.5s ease-out 3; }
+@keyframes weapon-flash { 0% { transform: translateX(-50%) scale(1.25); background: #ffb703aa; } 100% { transform: translateX(-50%) scale(1); } }
+.my-hp { position: absolute; top: 56px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; background: #0008; font-size: 0.85rem; white-space: nowrap; pointer-events: none; }
+.my-hp .bar { width: 140px; height: 10px; border-radius: 5px; background: #fff2; overflow: hidden; }
+.my-hp .bar i { display: block; height: 100%; width: calc(var(--hp, 1) * 100%); background: var(--hp-color, #4ade80); transition: width 0.15s; }
+.my-hp.hurt { animation: hp-hurt 0.3s; }
+@keyframes hp-hurt { 0% { background: #e6394699; } 100% { background: #0008; } }
+.battle-help { position: absolute; left: 50%; bottom: 72px; transform: translateX(-50%); width: min(92vw, 420px); font-size: 0.9rem; pointer-events: none; }
+.battle-help h3 { margin: 0 0 6px; }
+.battle-help p { margin: 6px 0; }
+.battle-help kbd { background: #ffb703; color: #000; font-weight: 800; border-radius: 6px; padding: 1px 7px; font-family: inherit; }
 .use-btn { position: absolute; right: 120px; bottom: 40px; width: 68px; height: 68px; border-radius: 50%; border: 0; font: inherit; background: #ffb703; color: #000; display: none; flex-direction: column; align-items: center; justify-content: center; line-height: 1; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
 .use-btn .use-icon { font-size: 1.7rem; }
 .use-btn .use-ammo { font-size: 0.7rem; font-weight: 800; }
