@@ -7,8 +7,11 @@ export function createControls(root: HTMLElement, onDash: () => void = () => {},
   const state = { touchX: 0, touchY: 0, dashQueued: false, useQueued: false };
 
   addEventListener("keydown", (e) => {
-    if ((e.target as HTMLElement)?.tagName === "INPUT") return;
+    // typing in a box on the lobby shouldn't steer, but once the match is up every key does
+    // (joining with a room code used to leave the cursor in the code box, which blocked all keys)
+    if ((e.target as HTMLElement)?.tagName === "INPUT" && root.hidden) return;
     keys.add(e.code);
+    if (!root.hidden && e.code.startsWith("Arrow")) e.preventDefault(); // don't scroll the page
     if (e.code === "Space") {
       if (!e.repeat) {
         state.dashQueued = true;

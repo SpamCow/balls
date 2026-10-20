@@ -512,7 +512,7 @@ async function renderOpen() {
   $("#open").innerHTML = list
     .map((m, i) => {
       const who = m.names.filter(Boolean).slice(0, 3).map(esc).join(", ");
-      return `<div class="row"><span><b>${eth(m.entryFee)}</b> · ${m.variant === "battle" ? "Battle" : "Classic"} · ${m.maxPlayers === 2 ? "1 vs 1" : "4 players"} · ${m.players}/${m.maxPlayers} in${who ? ` <span class="muted">(${who})</span>` : ""}</span><button class="btn small" data-i="${i}">Join</button></div>`;
+      return `<div class="row"><span><b>${eth(m.entryFee)}</b> · ${m.variant === "battle" ? "Battle" : "Classic"} · ${m.maxPlayers === 2 ? "1 vs 1" : `${m.maxPlayers} players`} · ${m.players}/${m.maxPlayers} in${who ? ` <span class="muted">(${who})</span>` : ""}</span><button class="btn small" data-i="${i}">Join</button></div>`;
     })
     .join("");
   $("#open").querySelectorAll<HTMLButtonElement>("button[data-i]").forEach((b) => {
@@ -658,6 +658,7 @@ async function openRoom(id: string) {
   $("#fees").hidden = true;
   $("#match").hidden = false;
   $("#result").hidden = true;
+  (document.activeElement as HTMLElement | null)?.blur?.(); // keys go to the game, not a lobby text box
   setStatus("Connecting…");
   view.setPlayers(0, null);
   let token = account ? store<{ token: string }>(`bb.session.${account}`)?.token ?? "" : "";
