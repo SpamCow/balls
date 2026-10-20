@@ -131,3 +131,15 @@ dialog::backdrop { background: #0008; }
 .tier:disabled { opacity: 0.5; cursor: not-allowed; transform: none; border-color: var(--line); }
 .friends-bar { position: absolute; left: 50%; bottom: 70px; translate: -50% 0; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: center; padding: 10px 14px; border-radius: 16px; background: rgba(21, 24, 52, 0.9); border: 1px solid var(--line); max-width: calc(100vw - 32px); }
 .check { display: flex; gap: 6px; align-items: center; font-size: 0.85rem; color: var(--muted); }
+
+/* account panel */
+#account-dialog h4 { margin: 16px 0 4px; }
+.acct-bal { display: flex; justify-content: space-between; align-items: baseline; margin-top: 6px; }
+.acct-bal b { font-size: 1.4rem; }
+.addr-row { display: flex; gap: 8px; align-items: center; }
+.addr-row code { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 0.8rem; background: #0003; padding: 8px; border-radius: 10px; }
+.cashout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.cashout input { font: inherit; color: var(--text); background: #0003; border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; width: 100%; box-sizing: border-box; text-transform: none; letter-spacing: normal; }
+.cashout .inline input { flex: 1; width: auto; min-width: 0; }
+#account-dialog .acts { justify-content: space-between; align-items: center; }
+.note { background: #ff3d7f22; border: 1px solid #ff3d7f55; border-radius: 10px; padding: 8px 10px; font-size: 0.9rem; }

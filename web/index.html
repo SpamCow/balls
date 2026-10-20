@@ -83,6 +83,21 @@
       <p class="muted small">On your phone? Open this page inside Robinhood Wallet's browser and pick it here.</p>
     </dialog>
 
+    <dialog id="account-dialog">
+      <form method="dialog" class="dialog-head"><h3 id="acct-label">Your wallet</h3><button class="x" aria-label="Close">×</button></form>
+      <div class="acct-bal"><span class="muted small">Balance</span><b id="acct-bal">…</b></div>
+      <p id="acct-need" class="note" hidden></p>
+      <h4>Add ETH</h4>
+      <p class="muted small">Send ETH on <b id="acct-chain">Robinhood Chain</b> to your game wallet. From Robinhood, choose Robinhood Chain as the network. Sending on any other network loses it.</p>
+      <div class="addr-row"><code id="acct-addr" class="mono"></code><button type="button" id="acct-copy" class="btn small">Copy</button></div>
+      <h4>Cash out</h4>
+      <form id="cashout-form" class="cashout">
+        <input id="out-to" placeholder="Send to address (0x…)" autocomplete="off" spellcheck="false" required />
+        <div class="inline"><input id="out-amt" placeholder="Amount in ETH" inputmode="decimal" required /><button type="button" id="out-max" class="btn small ghost">Max</button><button class="btn small">Send</button></div>
+      </form>
+      <div class="acts" style="margin-top:14px"><a id="acct-link" class="muted small" target="_blank" rel="noopener">View on explorer</a><button type="button" id="sign-out" class="btn small ghost">Sign out</button></div>
+    </dialog>
+
     <dialog id="money-dialog">
       <form method="dialog">
         <h3>Playing for real ETH</h3>

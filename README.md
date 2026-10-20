@@ -10,7 +10,7 @@ Everyone pays the same entry fee into an escrow contract; the last ball on the s
 | `contracts/BumperBalls.sol` | Escrow contract: signed join tickets, signed results, timeouts, refunds, pull payments |
 | `shared/` | Physics simulation, EIP-712 types, tiers/chain config, generated ABI and bytecode |
 | `server/` | Node server: static site, wallet sign-in, matchmaking, authoritative game rooms, escrow auto-deploy |
-| `web/` | Vite + three.js client: 3D arena, keyboard/touch controls, EIP-6963 wallets + optional WalletConnect |
+| `web/` | Vite + three.js client: 3D arena, keyboard/touch controls, Privy sign-in with built-in wallets (EIP-6963 + WalletConnect when Privy isn't set up) |
 | `demo/` | Single-file offline demo (solo vs bots, two players on one keyboard) |
 | `test/contract.test.ts` | Contract tests on a local Hardhat EVM |
 | `test/e2e.ts` | Paid match, practice match and friends rooms against a running server |
@@ -68,7 +68,8 @@ Free play works as soon as it's up. To open paid matches, send about 0.005 Robin
 | `RPC_URL` | public RPC for the chain | |
 | `CONTRACT_ADDRESS` | deployer's first contract | set only if you deployed the escrow yourself |
 | `FEE_RECIPIENT` | deployer | your wallet for the 5% fee, fixed when the escrow deploys |
-| `WALLETCONNECT_PROJECT_ID` | none | enables QR connect for Robinhood Wallet on phones |
+| `PRIVY_APP_ID` | none | email/Google sign-in through Privy, with a built-in wallet per player (deposit, play, cash out). Replaces Connect wallet |
+| `WALLETCONNECT_PROJECT_ID` | none | without Privy only: QR connect for Robinhood Wallet on phones |
 | `DATA_DIR` | none | where paid matches in play are remembered across restarts |
 
 Mainnet means real-money play, which is regulated in many places. To turn it on set `CHAIN_ID=4663`, `ALLOW_MAINNET=yes` and `FEE_RECIPIENT`, then fund the deployer. Step-by-step owner instructions are in `SETUP_GUIDE_FOR_AI.md`.

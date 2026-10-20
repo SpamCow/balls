@@ -16,4 +16,4 @@ services:
         generateValue: true
       - key: CHAIN_ID
         value: "46630"       # Robinhood Chain testnet
-      # Optional: WALLETCONNECT_PROJECT_ID (lets Robinhood Wallet on a phone connect by QR)
+      # Add PRIVY_APP_ID (from dashboard.privy.io) for email/Google sign-in with built-in wallets

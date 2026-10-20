@@ -5,6 +5,7 @@ import { COLORS, type Tier } from "../../shared/config";
 import { SNAP_STRIDE } from "../../shared/physics";
 import { MatchStatus } from "../../shared/eip712";
 import { discoverWallets, walletOptions, ensureChain, clients } from "./wallet";
+import type { PrivyApi, PrivyState } from "./privy";
 import { ArenaView } from "./render";
 import { createControls } from "./input";
 
@@ -15,6 +16,7 @@ type Config = {
   explorer: string;
   contract: Address;
   walletConnectProjectId: string | null;
+  privyAppId: string | null;
   tiers: Tier[];
   paid: { state: "checking" | "needs-funds" | "deploying" | "live" | "error"; deployer?: Address; balance?: string; message?: string };
 };
@@ -50,6 +52,8 @@ let cfg: Config;
 let chain: Chain;
 let provider: EIP1193Provider | null = null;
 let account: Address | null = null;
+let privy: PrivyApi | null = null;
+let privyState: PrivyState | null = null;
 let ws: WebSocket | null = null;
 let room: RoomState | null = null;
 let view: ArenaView;
@@ -100,12 +104,18 @@ function txLink(hash: string) {
 
 function renderWallet() {
   const btn = $("#wallet-btn");
-  btn.textContent = account ? short(account) : "Connect wallet";
+  btn.textContent = account ? (privyState?.label ?? short(account)) : privy || cfg.privyAppId ? "Sign in" : "Connect wallet";
   btn.classList.toggle("connected", !!account);
   $("#net").textContent = cfg.chainName ?? `Chain ${cfg.chainId}`;
 }
 
 function openWalletPicker() {
+  if (cfg.privyAppId) {
+    if (account) openAccount();
+    else if (privy) privy.login();
+    else toast("Sign-in is still loading. Try again in a second.");
+    return;
+  }
   if (account) {
     if (confirm("Disconnect this wallet?")) {
       account = null;
@@ -153,7 +163,7 @@ function openWalletPicker() {
 async function requireWallet(): Promise<{ provider: EIP1193Provider; account: Address }> {
   if (!provider || !account) {
     openWalletPicker();
-    throw new Error("Connect a wallet first.");
+    throw new Error(cfg.privyAppId ? "Sign in first." : "Connect a wallet first.");
   }
   await ensureChain(provider, chain);
   return { provider, account };
@@ -173,6 +183,75 @@ async function session(): Promise<string> {
   if (!r.ok) throw new Error(j.error || "Sign-in failed");
   store(`bb.session.${a}`, { token: j.token, exp: Number(j.token.split(".")[1]) });
   return j.token;
+}
+
+function onPrivy(s: PrivyState) {
+  const was = account;
+  privyState = s;
+  account = s.account;
+  provider = s.provider;
+  renderWallet();
+  if (was !== account && !$("#home").hidden) renderHome();
+  if (!was && account && s.builtIn) refreshAccount();
+}
+
+const GAS_ROOM = 50_000_000_000_000n; // 0.00005 ETH: far more than a Robinhood Chain transaction costs
+
+async function balanceOf(a: Address) {
+  return clients(provider!, a, chain).pub.getBalance({ address: a });
+}
+
+async function refreshAccount(need?: bigint) {
+  if (!account) return;
+  $("#acct-label").textContent = privyState?.label ?? "Your wallet";
+  $("#acct-addr").textContent = account;
+  $("#acct-chain").textContent = cfg.chainName ?? `chain ${cfg.chainId}`;
+  $("#acct-link").setAttribute("href", cfg.explorer ? `${cfg.explorer}/address/${account}` : "#");
+  const needEl = $("#acct-need");
+  needEl.hidden = !need;
+  try {
+    const bal = await balanceOf(account);
+    $("#acct-bal").textContent = eth(bal);
+    if (need && bal < need) needEl.textContent = `You need ${eth(need - bal)} more for that match. Send it to the address below and it shows up here in a few seconds.`;
+    else needEl.hidden = true;
+  } catch {
+    $("#acct-bal").textContent = "…";
+  }
+}
+
+function openAccount(need?: bigint) {
+  refreshAccount(need);
+  const d = $<HTMLDialogElement>("#account-dialog");
+  if (!d.open) d.showModal();
+  // keep the balance live while the panel is open, so a deposit shows up by itself
+  const t = setInterval(() => (d.open ? refreshAccount(need) : clearInterval(t)), 4000);
+}
+
+async function cashOut(e: Event) {
+  e.preventDefault();
+  try {
+    const { provider: p, account: a } = await requireWallet();
+    const to = getAddress($<HTMLInputElement>("#out-to").value.trim());
+    const raw = $<HTMLInputElement>("#out-amt").value.trim();
+    const { wallet, pub } = clients(p, a, chain);
+    let value: bigint;
+    if (raw.toLowerCase() === "max") {
+      const bal = await pub.getBalance({ address: a });
+      const fees = await pub.estimateFeesPerGas();
+      const gas = await pub.estimateGas({ account: a, to, value: 1n });
+      value = bal - gas * (fees.maxFeePerGas ?? 0n) * 2n;
+    } else {
+      value = BigInt(Math.round(Number(raw) * 1e9)) * 1_000_000_000n;
+    }
+    if (!(value > 0n)) throw new Error("Enter an amount, or Max.");
+    const hash = await wallet.sendTransaction({ account: a, chain, to, value });
+    toast("Sending…");
+    await pub.waitForTransactionReceipt({ hash });
+    toast(`Sent ${eth(value)} to ${short(to)}`, "ok");
+    refreshAccount();
+  } catch (err: any) {
+    toast(/invalid address|Address ".*" is invalid/i.test(String(err?.message)) ? "That isn't a valid wallet address." : errMsg(err), "error");
+  }
 }
 
 // --------------------------------------------------------------------- home
@@ -305,6 +384,10 @@ async function joinPaid(tier: Tier, stale?: string): Promise<void> {
     const m = (await pub.readContract({ address: cfg.contract, abi: bumperBallsAbi, functionName: "getMatch", args: [t.matchId] })) as any;
     const already = (m.players as string[]).slice(0, Number(m.playerCount)).includes(a);
     if (!already) {
+      if (cfg.privyAppId && (await pub.getBalance({ address: a })) < BigInt(t.entryFee) + GAS_ROOM) {
+        openAccount(BigInt(t.entryFee) + GAS_ROOM);
+        return;
+      }
       let request;
       try {
         ({ request } = await pub.simulateContract({
@@ -611,6 +694,30 @@ async function boot() {
   readControls = createControls($("#match"));
   discoverWallets(() => {});
   $("#wallet-btn").onclick = openWalletPicker;
+  if (cfg.privyAppId) {
+    import("./privy")
+      .then((m) => m.mountPrivy(cfg.privyAppId!, chain, onPrivy))
+      .then((api) => (privy = api))
+      .catch((e) => toast(`Sign-in couldn't load: ${errMsg(e)}`, "error"));
+  }
+  $("#cashout-form").addEventListener("submit", cashOut);
+  $("#out-max").onclick = () => ($<HTMLInputElement>("#out-amt").value = "max");
+  $("#acct-copy").onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(account ?? "");
+      toast("Address copied", "ok");
+    } catch {
+      prompt("Your wallet address", account ?? "");
+    }
+  };
+  $("#sign-out").onclick = async () => {
+    $<HTMLDialogElement>("#account-dialog").close();
+    await privy?.logout();
+    account = null;
+    provider = null;
+    renderWallet();
+    renderHome();
+  };
   $("#practice-btn").onclick = joinPractice;
   $("#friends-btn").onclick = createFriends;
   $("#start-btn").onclick = beginFriends;

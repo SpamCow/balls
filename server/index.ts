@@ -155,6 +155,7 @@ const server = http.createServer(async (req, res) => {
         paid: contract,
         signer: signerAddress(env),
         walletConnectProjectId: env.WALLETCONNECT_PROJECT_ID || null,
+        privyAppId: process.env.PRIVY_APP_ID || null,
         tiers: TIERS,
       });
     }
