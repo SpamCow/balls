@@ -311,7 +311,25 @@ function openAccount(need?: bigint) {
   const d = $<HTMLDialogElement>("#account-dialog");
   if (!d.open) d.showModal();
   // keep the balance live while the panel is open, so a deposit shows up by itself
-  const t = setInterval(() => (d.open ? refreshAccount(need) : clearInterval(t)), 4000);
+  const t = setInterval(() => (d.open || signingNow ? refreshAccount(need) : clearInterval(t)), 4000);
+}
+
+/**
+ * Privy's approve window is an ordinary page element, so an open dialog (which the
+ * browser always draws on top) would hide it. Step the dialogs aside while the
+ * player approves, then bring them back.
+ */
+let signingNow = false;
+async function signing<T>(fn: () => Promise<T>): Promise<T> {
+  const open = cfg.privyAppId ? [...document.querySelectorAll<HTMLDialogElement>("dialog[open]")] : [];
+  signingNow = open.length > 0;
+  open.forEach((d) => d.close());
+  try {
+    return await fn();
+  } finally {
+    open.forEach((d) => d.isConnected && !d.open && d.showModal());
+    signingNow = false;
+  }
 }
 
 async function cashOut(e: Event) {
@@ -331,7 +349,7 @@ async function cashOut(e: Event) {
       value = BigInt(Math.round(Number(raw) * 1e9)) * 1_000_000_000n;
     }
     if (!(value > 0n)) throw new Error("Enter an amount, or Max.");
-    const hash = await wallet.sendTransaction({ account: a, chain, to, value });
+    const hash = await signing(() => wallet.sendTransaction({ account: a, chain, to, value }));
     toast("Sending…");
     await pub.waitForTransactionReceipt({ hash });
     toast(`Sent ${eth(value)} to ${short(to)}`, "ok");
@@ -430,7 +448,7 @@ async function contractAction(act: string, id?: Hex, contract: Address = cfg.con
     const args: any = act === "withdraw" ? [] : [id];
     const fn = act as "withdraw" | "refund" | "leave";
     const { request } = await pub.simulateContract({ account: a, address: contract, abi: bumperBallsAbi, functionName: fn, args });
-    const hash = await wallet.writeContract(request);
+    const hash = await signing(() => wallet.writeContract(request));
     toast("Transaction sent…");
     await pub.waitForTransactionReceipt({ hash });
     toast(act === "leave" ? "Left the match. Your entry fee is back." : "Done. The ETH is back in your wallet.", "ok");
@@ -578,7 +596,7 @@ async function joinPaid(tier: Tier, stale?: string): Promise<void> {
       }
       openRoom(t.matchId);
       setStatus(`Confirm the ${eth(t.entryFee)} entry in your wallet…`);
-      const hash = await wallet.writeContract(request);
+      const hash = await signing(() => wallet.writeContract(request));
       rememberMatch(t.matchId);
       // the server may already have seen the payment by the time the wallet hands back the hash
       // (Privy's wallet can wait on its own confirmation screen), so only show this if we're not seated yet
@@ -937,7 +955,7 @@ function renderPhase() {
   $("#controls-hint").textContent = battle ? "WASD / arrows to roll · Space to dash · E or Shift to use your weapon" : "WASD / arrows to roll · Space to dash";
   // battle how-to: shown through the countdown and the first seconds of play, for a player's first few battles
   const help = $("#battle-help");
-  if (matchMedia("(pointer: coarse)").matches) $(".use-key").textContent = "the weapon button";
+  if (matchMedia("(pointer: coarse)").matches) $(".use-key").textContent = "❓";
   if (battle && room.phase === "countdown" && room.you !== null && help.hidden && helpCount() < 5) {
     help.hidden = false;
     helpCount(helpCount() + 1);
@@ -1101,7 +1119,7 @@ async function collectFees() {
     const { wallet, pub } = clients(feeWallet.provider, feeWallet.account, chain);
     await ensureChain(feeWallet.provider, chain);
     const { request } = await pub.simulateContract({ account: feeWallet.account, address: cfg.contract, abi: bumperBallsAbi, functionName: "withdraw", args: [] });
-    const hash = await wallet.writeContract(request);
+    const hash = await signing(() => wallet.writeContract(request));
     toast("Collecting…");
     await pub.waitForTransactionReceipt({ hash });
     toast("Collected. The ETH is in the fee wallet.", "ok");
@@ -1164,7 +1182,7 @@ async function claim() {
       functionName: "claim",
       args: [room.matchId as Hex, room.result.winner ?? zeroAddress, room.result.sig],
     });
-    const hash = await wallet.writeContract(request);
+    const hash = await signing(() => wallet.writeContract(request));
     toast("Claiming…");
     await pub.waitForTransactionReceipt({ hash });
     toast("Paid out to your wallet!", "ok");
