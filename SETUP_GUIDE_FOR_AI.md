@@ -57,6 +57,7 @@ If the owner received the repository itself (a GitHub transfer of `SpamCow/balls
 
 - **Play with friends** (free): a 5-letter room code or invite link. The host presses Start, and bots can fill empty seats.
 - **Quick game vs bots** (free).
+- **Battle mode** (free: **Battle vs bots**, or the host ticks "Battle mode" in a friends room). A walled arena with a hole in the middle; everyone has 100 HP. Crates give a random self-aiming weapon (hammer, laser rifle, magnet, spike shell, homing rocket, mines, ice slick), used with E/Shift or the phone weapon button. The hole grows from 75 s; at 120 s the most HP wins. All tuning numbers are in the `BATTLE` constant in `shared/battle.ts`.
 - **Paid matches** (optional): 0.001, 0.01 or 0.1 ETH entry, as a 2-player duel or a 4-player brawl. Winner takes the pot minus a 5% house cut.
 
 **Players:**

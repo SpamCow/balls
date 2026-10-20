@@ -19,6 +19,7 @@ Everyone pays the same entry fee into an escrow contract; the last ball on the s
 
 - **Play with friends (free):** create a room, send the 5-character code or invite link, and the host presses Start. Empty seats can be filled with bots.
 - **Quick game vs bots (free):** drops you into a practice match; anyone who joins in the first few seconds plays too.
+- **Battle mode (free):** "Battle vs bots", or tick "Battle mode" in a friends room. Walls instead of edges, a hole in the middle, HP, and weapon crates (E/Shift to use). Rules and tuning: `shared/battle.ts`.
 - **ETH matches:** 2- or 4-player matches with an entry fee held in the escrow contract (testnet by default, real ETH on mainnet when enabled).
 
 The platform starts shrinking 3 seconds in and keeps closing until 70 seconds, so every match ends. A ball drops once most of it hangs past the rim.
