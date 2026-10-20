@@ -199,6 +199,9 @@ function onPrivy(s: PrivyState) {
   if (was !== account) profile = null;
   renderWallet();
   if (was !== account && !$("#home").hidden) renderHome();
+  // an invite link opened before sign-in finished loading: try it again now that we know who this is
+  const hash = location.hash.slice(1);
+  if (!was && account && !room && hash.startsWith("0x") && !$("#match").hidden) openRoom(hash);
   if (!was && account && s.builtIn) refreshAccount();
   if (account && was !== account) loadProfile(true);
 }
@@ -645,8 +648,11 @@ function nickname() {
   return v;
 }
 
-function openRoom(id: string) {
+let openSeq = 0;
+async function openRoom(id: string) {
+  const seq = ++openSeq;
   ws?.close();
+  ws = null;
   room = null;
   $("#home").hidden = true;
   $("#fees").hidden = true;
@@ -654,7 +660,10 @@ function openRoom(id: string) {
   $("#result").hidden = true;
   setStatus("Connecting…");
   view.setPlayers(0, null);
-  const token = account ? store<{ token: string }>(`bb.session.${account}`)?.token ?? "" : "";
+  let token = account ? store<{ token: string }>(`bb.session.${account}`)?.token ?? "" : "";
+  // paid matches need a signed-in session; make sure it's fresh rather than letting the server turn us away
+  if (account && id.startsWith("0x")) token = await session().catch(() => token);
+  if (seq !== openSeq) return; // another room was opened meanwhile
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const sock = new WebSocket(`${proto}://${location.host}/ws/${id}?token=${encodeURIComponent(token)}&name=${encodeURIComponent(nickname())}&skin=${encodeURIComponent(mySkin)}`);
   ws = sock;
@@ -948,6 +957,7 @@ function linkButtons(tier: Tier) {
   $("#link-home")?.addEventListener("click", leaveRoom);
   $("#link-join")?.addEventListener("click", () => joinPaid(tier));
   $("#link-signin")?.addEventListener("click", () => {
+    if (account) return void openRoom(location.hash.slice(1)); // already signed in: just reconnect
     openWalletPicker();
     // once signed in, swap the button for the join button
     const t = setInterval(() => {

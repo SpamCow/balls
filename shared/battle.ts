@@ -294,7 +294,8 @@ function projectiles(sim: Sim) {
   B.mines = B.mines.filter((m) => {
     if (sim.tick >= m.die) return false;
     if (sim.tick < m.arm) return true;
-    const o = sim.balls.find((o) => o.alive && o.seat !== m.o && dist(o, m) < BATTLE.mine.r);
+    // once armed it goes off under anyone, including whoever dropped it
+    const o = sim.balls.find((o) => o.alive && dist(o, m) < BATTLE.mine.r);
     if (!o) return true;
     // sends you flying back the way you came
     const sp = Math.hypot(o.vx, o.vy);
@@ -424,7 +425,7 @@ export function battleSnapshot(sim: Sim) {
     c: B.crates.flatMap((c) => [c.id, ...xy(c)]),
     l: B.lasers.flatMap((l) => [l.id, ...xy(l), l.o]), // o: who fired it, for its colour
     r: B.rockets.flatMap((m) => [m.id, ...xy(m), Math.round(Math.atan2(m.vy, m.vx) * 100) / 100]),
-    m: B.mines.flatMap((m) => [m.id, ...xy(m), sim.tick >= m.arm ? 1 : 0]),
+    m: B.mines.flatMap((m) => [m.id, ...xy(m), sim.tick >= m.arm ? 1 : 0, m.o]),
   };
 }
 export type BattleSnap = ReturnType<typeof battleSnapshot>;

@@ -120,6 +120,7 @@ export class ArenaView {
   private lasers!: Pool;
   private rockets!: Pool;
   private mines!: Pool;
+  private mineMats: THREE.MeshStandardMaterial[] = [];
   private laserMats: { core: THREE.MeshBasicMaterial; glow: THREE.MeshBasicMaterial }[] = [];
   private hole!: THREE.Mesh;
   private holeRim!: THREE.Mesh;
@@ -251,11 +252,13 @@ export class ArenaView {
       return m;
     });
     const mineGeo = new THREE.CylinderGeometry(0.5, 0.55, 0.22, 20);
-    const mineMat = new THREE.MeshStandardMaterial({ color: "#2b2d42", roughness: 0.6 });
+    // each mine is the colour of whoever dropped it
+    this.mineMats = COLORS.map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.5, emissive: c, emissiveIntensity: 0.25 }));
     const lightGeo = new THREE.SphereGeometry(0.12, 8, 6);
+    const lightMat = new THREE.MeshBasicMaterial({ color: "#ffffff" });
     this.mines = new Pool(g, () => {
-      const m = new THREE.Mesh(mineGeo, mineMat);
-      const light = new THREE.Mesh(lightGeo, new THREE.MeshBasicMaterial({ color: "#ff0a54" }));
+      const m = new THREE.Mesh(mineGeo, this.mineMats[0]);
+      const light = new THREE.Mesh(lightGeo, lightMat);
       light.position.y = 0.15;
       m.add(light);
       return m;
@@ -401,8 +404,9 @@ export class ArenaView {
       m.position.set(x, 0.8, z);
       m.rotation.y = -d[i + 3];
     });
-    this.mines.sync(b.m, 4, (m, d, i) => {
+    this.mines.sync(b.m, 5, (m, d, i) => {
       m.position.set(d[i + 1], 0.11, d[i + 2]);
+      (m as THREE.Mesh).material = this.mineMats[d[i + 4] % this.mineMats.length];
       const light = m.children[0] as THREE.Mesh;
       light.visible = d[i + 3] === 0 || Math.sin(t * 12) > 0; // blinks once armed
     });
