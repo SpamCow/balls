@@ -9,8 +9,8 @@ export const RULES = {
   arenaStart: 11,
   arenaMin: 3,
   shrinkStart: 3, // seconds into the match; the edge then creeps in steadily
-  shrinkEnd: 90,
-  hardLimit: 110, // seconds; closest to center wins if still going
+  shrinkEnd: 70, // ~30% faster than the old 3s→90s close
+  hardLimit: 90, // seconds; closest to center wins if still going
   accel: 16,
   drag: 1.1, // per second
   maxSpeed: 10,
@@ -19,6 +19,7 @@ export const RULES = {
   dashImpulse: 9,
   dashCooldown: 2.5,
   spawnRadius: 6,
+  edgeGrace: 0.4, // a ball only drops once its center is this far past the rim (most of it hanging off)
 };
 
 export type Input = { x: number; y: number; dash: boolean };
@@ -170,7 +171,7 @@ export function step(sim: Sim) {
 
   // falling off
   for (const b of alive) {
-    if (Math.hypot(b.x, b.y) > sim.arena) {
+    if (Math.hypot(b.x, b.y) > sim.arena + R.edgeGrace) {
       b.alive = false;
       b.outAt = sim.tick;
       sim.events.push({ t: "out", seat: b.seat });

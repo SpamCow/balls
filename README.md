@@ -21,7 +21,7 @@ Everyone pays the same entry fee into an escrow contract; the last ball on the s
 - **Quick game vs bots (free):** drops you into a practice match; anyone who joins in the first few seconds plays too.
 - **Testnet ETH matches:** 2- or 4-player matches with an entry fee held in the escrow contract.
 
-The platform starts shrinking 3 seconds in and keeps closing until 90 seconds, so every match ends.
+The platform starts shrinking 3 seconds in and keeps closing until 70 seconds, so every match ends. A ball drops once most of it hangs past the rim.
 
 ## How a paid match works
 
