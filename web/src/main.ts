@@ -720,8 +720,23 @@ function sendInput() {
   if (msg !== lastSent || c.dash || c.use) ws.send(msg);
   lastSent = msg;
   const d = view.dashReadyIn(room.you);
-  $("#dash-meter").style.setProperty("--p", String(Math.max(0, 1 - d / 150)));
+  renderDash(d);
   renderWeapon();
+}
+
+/** The dash meter fills while the dash recharges, then lights up when it's ready again. */
+let lastDash = "";
+function renderDash(ticks: number) {
+  const meter = $("#dash-meter");
+  meter.style.setProperty("--p", String(Math.max(0, 1 - ticks / 150)));
+  const ready = ticks <= 0;
+  const touch = matchMedia("(pointer: coarse)").matches;
+  const text = ready ? (touch ? "DASH READY" : "DASH READY · Space") : `Dash recharging ${(ticks / 60).toFixed(1)}s`;
+  if (text === lastDash) return;
+  lastDash = text;
+  meter.querySelector("span")!.textContent = text;
+  meter.classList.toggle("ready", ready);
+  $(".dash-btn").classList.toggle("cooling", !ready);
 }
 
 /** Battle mode: what you're holding, under the dash meter (and on the phone weapon button). */
@@ -952,7 +967,7 @@ function renderPhase() {
   $("#controls-hint").hidden = room.phase !== "countdown" && room.phase !== "playing";
   $("#dash-meter").hidden = room.phase !== "playing" || room.you === null;
   const battle = room.variant === "battle";
-  $("#controls-hint").textContent = battle ? "WASD / arrows to roll · Space to dash · E or Shift to use your weapon" : "WASD / arrows to roll · Space to dash";
+  $("#controls-hint").textContent = battle ? "WASD / arrows: roll · Space: dash · E: weapon" : "WASD / arrows: roll · Space: dash";
   // battle how-to: shown through the countdown and the first seconds of play, for a player's first few battles
   const help = $("#battle-help");
   if (matchMedia("(pointer: coarse)").matches) $(".use-key").textContent = "❓";

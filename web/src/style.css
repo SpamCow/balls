@@ -101,16 +101,22 @@ h3 { margin: 28px 0 12px; }
 .result { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(92vw, 380px); text-align: center; }
 .result h2 { margin: 4px 0 8px; font-size: 1.8rem; }
 .result .acts { justify-content: center; margin-top: 12px; }
-.hint { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); color: var(--muted); font-size: 0.85rem; white-space: nowrap; }
+.hint { position: absolute; bottom: 16px; left: 16px; color: var(--muted); font-size: 0.85rem; white-space: nowrap; }
 .dash-meter {
-  --p: 1; position: absolute; bottom: 44px; left: 50%; transform: translateX(-50%);
-  width: 120px; height: 6px; border-radius: 3px; background: var(--panel-2); overflow: hidden;
+  --p: 1; position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+  width: 170px; height: 26px; border-radius: 13px; background: var(--panel-2); overflow: hidden;
+  display: flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: 800; color: var(--muted); pointer-events: none;
 }
-.dash-meter::after { content: ""; position: absolute; inset: 0; width: calc(var(--p) * 100%); background: var(--accent-2); }
+.dash-meter[hidden] { display: none; }
+.dash-meter span { position: relative; }
+.dash-meter.ready { background: var(--accent-2); color: #000; box-shadow: 0 0 14px var(--accent-2); }
+.dash-meter::before { content: ""; position: absolute; inset: 0; width: calc(var(--p) * 100%); background: var(--accent-2); opacity: 0.45; }
+.dash-meter.ready::before { display: none; }
+.dash-btn.cooling { filter: grayscale(0.8) brightness(0.6); }
 .stick { display: none; position: absolute; width: 120px; height: 120px; margin: -60px 0 0 -60px; border-radius: 50%; border: 2px solid #fff4; pointer-events: none; }
 .knob { position: absolute; left: 35px; top: 35px; width: 50px; height: 50px; border-radius: 50%; background: #fff5; }
 .dash-btn { display: none; position: absolute; right: 24px; bottom: 32px; width: 84px; height: 84px; border-radius: 50%; border: 0; font: inherit; font-weight: 800; background: var(--accent); color: #fff; }
-.weapon-slot { position: absolute; bottom: 64px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; align-items: center; padding: 6px 12px; border-radius: 999px; background: #0008; font-size: 0.9rem; white-space: nowrap; }
+.weapon-slot { position: absolute; bottom: 56px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; align-items: center; padding: 6px 12px; border-radius: 999px; background: #0008; font-size: 0.9rem; white-space: nowrap; }
 .weapon-slot .ic { font-size: 1.3rem; }
 .weapon-slot.empty { color: var(--muted); }
 .weapon-slot .key { background: #ffb703; color: #000; font-weight: 800; border-radius: 6px; padding: 1px 7px; }
@@ -121,7 +127,7 @@ h3 { margin: 28px 0 12px; }
 .my-hp .bar i { display: block; height: 100%; width: calc(var(--hp, 1) * 100%); background: var(--hp-color, #4ade80); transition: width 0.15s; }
 .my-hp.hurt { animation: hp-hurt 0.3s; }
 @keyframes hp-hurt { 0% { background: #e6394699; } 100% { background: #0008; } }
-.battle-help { position: absolute; left: 50%; bottom: 72px; transform: translateX(-50%); width: max-content; max-width: 92vw; padding: 10px 16px; font-size: 0.95rem; pointer-events: none; }
+.battle-help { position: absolute; left: 16px; bottom: 44px; width: max-content; max-width: 92vw; padding: 10px 16px; font-size: 0.95rem; pointer-events: none; }
 .battle-help h3 { margin: 0 0 6px; }
 .battle-help p { margin: 6px 0; }
 .battle-help kbd { background: #ffb703; color: #000; font-weight: 800; border-radius: 6px; padding: 1px 7px; font-family: inherit; }
@@ -206,5 +212,5 @@ dialog::backdrop { background: #0008; }
   .my-hp .bar { width: 80px; }
 }
 @media (pointer: coarse) {
-  .battle-help { bottom: 216px; }
+  .battle-help { bottom: 216px; left: 16px; max-width: calc(100vw - 32px); }
 }
