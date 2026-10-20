@@ -283,6 +283,31 @@ The contract sends the house cut straight to the fee wallets in the same transac
 - **If a wallet can't accept ETH** (a contract wallet that rejects payments), its share is kept in the contract instead of blocking the match. `/#fees` shows any such amount, and that wallet collects it there.
 - **Never set up a script that stores the fee wallets' private keys.** It's never needed.
 
+## How many players it handles
+
+Measured with `scripts/load-test.mts` (battle mode, every player steering and using weapons, rounds back to back), on one 2.1 GHz server core:
+
+| Players at once | Server CPU | Memory | Upload from the server |
+|---|---|---|---|
+| 100 (25 rooms) | 10% of one core | ~100 MB | ~0.8 MB/s |
+| 400 (100 rooms) | 40% of one core | ~110 MB | ~3.1 MB/s |
+
+Snapshots kept arriving every ~33 ms (99th percentile 36 ms at 100 players, 43 ms at 400), so the game stayed smooth.
+
+- **Default hosting:**
+  - Render Starter (0.5 CPU, 512 MB) or a 1 GB VPS is enough for about 100 to 200 players at once.
+  - Above that, move to a bigger plan, such as Render Standard (1 CPU, 2 GB) or a 2-CPU VPS. Change the plan in place; keep **one instance**, because rooms live in memory and a second instance would split them.
+  - Run the load test against a copy, not the live site, to check a new plan. The server needs `TRUST_PROXY=1` for the test, so each fake player counts as its own IP. Only keep `TRUST_PROXY=1` on the live site if it sits behind a proxy that sets `X-Forwarded-For` (Render, Caddy and nginx do).
+- **Bandwidth:**
+  - Each player in a match uses about 8 KB/s, which is roughly 30 MB per hour of play.
+  - Check the host's included bandwidth: 100 players playing nonstop for a month would be about 2 TB.
+- **The chain side with many paid matches:**
+  - Every paid match waiting for players reads the chain every 2.5 s while someone has it open.
+  - With dozens waiting at once, the public Robinhood Chain RPC may start limiting requests. Then sign up for a paid RPC (for example Alchemy or QuickNode, if they support Robinhood Chain) and put its URL in `RPC_URL`.
+  - Each settled match costs the deployer a little gas, so keep its balance topped up. The site shows its address.
+- **Sign-in:** check the Privy plan's monthly active user limit once the player count grows.
+- **Per-IP limit:** a single IP can hold 8 game connections at once, so a whole school or office behind one IP could hit it. The limit is `MAX_CONNS_PER_IP` in `server/index.ts`.
+
 ## Changing the game
 
 - **Skins:** add PNG, JPG or WEBP files to `web/public/skins/`, then commit and deploy.
