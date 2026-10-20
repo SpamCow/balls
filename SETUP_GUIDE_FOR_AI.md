@@ -220,6 +220,10 @@ If the site shows a message instead of unlocking (Step 4c), it says what is miss
 
 Changing `CHAIN_ID` from testnet to mainnet sets up a brand-new contract on mainnet; that's expected. The testnet contract stays on testnet.
 
+## Ball skins
+
+Players pick a skin from **Ball skin** on the home page, and everyone in the match sees it. The skins are the images in `web/public/skins/` in the code. To add one, put a PNG, JPG or WEBP file in that folder and redeploy (push to GitHub, or rebuild on a VPS). The file name becomes the skin's name, so `lava-rock.png` shows as "Lava rock"; use only letters, numbers, `-` and `_`. The picture wraps around the ball like a world map, so a wide image twice as wide as it is tall (for example 1024 × 512) looks best. To remove a skin, delete its file. The four sample skins can be replaced freely.
+
 ## Updating the game later
 
 When the code changes on GitHub, wait a few minutes for the **Server zip** build to finish (the repo's **Actions** tab shows it), then:

@@ -47,6 +47,7 @@ export class Room {
   lastActive = Date.now();
   private seats: (string | null)[] = []; // paid: on-chain players; others: wallet or guest id per seat
   private names: string[] = [];
+  private skinBy = new Map<string, string>(); // seat id (wallet or guest) -> skin file
   private bots = new Set<number>();
   private result: Result | null = null;
   private conns = new Set<Conn>();
@@ -83,13 +84,16 @@ export class Room {
 
   // ------------------------------------------------------------ connections
 
-  attach(ws: WebSocket, address: Address | null, name: string) {
+  attach(ws: WebSocket, address: Address | null, name: string, skin = "") {
     this.lastActive = Date.now();
     const conn: Conn = { ws, address, name, seat: null, msgs: 0, windowStart: Date.now() };
     // one live connection per wallet: a new tab replaces the old one
     if (address) for (const c of this.conns) if (c.address === address) this.drop(c);
     this.conns.add(conn);
     if (this.cfg.mode !== "paid") this.takeSeat(conn);
+    // remembered by wallet (or guest seat), so it follows the player when seats are reordered
+    const skinKey = conn.seat !== null ? this.seats[conn.seat] : address;
+    if (skinKey) this.skinBy.set(skinKey, skin);
 
     ws.on("message", (data, isBinary) => !isBinary && this.onMessage(conn, data.toString()));
     ws.on("close", () => this.detach(conn));
@@ -212,6 +216,7 @@ export class Room {
       seats: this.seats,
       // a signed-in player always shows under their username
       names: this.seats.map((a, i) => (a && !a.startsWith("guest:") && this.persist.nameOf(a as Address)) || this.names[i] || ""),
+      skins: this.seats.map((a) => (a && this.skinBy.get(a)) || ""),
       host: cfg.mode === "friends" ? this.hostSeat : null,
       round: this.round,
       bots: [...this.bots],

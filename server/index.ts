@@ -123,9 +123,28 @@ const MIME: Record<string, string> = {
   ".css": "text/css",
   ".svg": "image/svg+xml",
   ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
   ".json": "application/json",
   ".woff2": "font/woff2",
 };
+
+// Ball skins: every image in the skins folder that ships with the site
+// (web/public/skins in the repo). A skin's id is its file name.
+const SKIN_FILE = /^[A-Za-z0-9_-]{1,40}\.(png|jpe?g|webp)$/i;
+const SKINS = (() => {
+  try {
+    return fs.readdirSync(path.join(STATIC_DIR, "skins")).filter((f) => SKIN_FILE.test(f)).sort();
+  } catch {
+    return [];
+  }
+})();
+const skinList = SKINS.map((id) => ({
+  id,
+  name: id.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").replace(/^./, (c) => c.toUpperCase()),
+  url: `/skins/${id}`,
+}));
 
 function sendJson(res: http.ServerResponse, status: number, body: unknown) {
   res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" });
@@ -182,6 +201,7 @@ const server = http.createServer(async (req, res) => {
       }
       return sendJson(res, 200, profiles.get(address));
     }
+    if (p === "/api/skins") return sendJson(res, 200, skinList);
     if (p === "/api/leaderboard") return sendJson(res, 200, profiles.leaderboard());
     if (p === "/api/fees" && req.method === "GET") return sendJson(res, 200, fees.status());
     if (p === "/api/fees/payout" && req.method === "POST") {
@@ -249,7 +269,8 @@ server.on("upgrade", async (req, socket, head) => {
   wss.handleUpgrade(req, socket, head, (ws) => {
     ipConns.set(ip, (ipConns.get(ip) ?? 0) + 1);
     ws.on("close", () => ipConns.set(ip, Math.max(0, (ipConns.get(ip) ?? 1) - 1)));
-    room.attach(ws, address, name);
+    const skin = String(url.searchParams.get("skin") || "");
+    room.attach(ws, address, name, SKINS.includes(skin) ? skin : "");
   });
 });
 

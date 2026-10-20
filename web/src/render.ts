@@ -14,6 +14,18 @@ const sparkMat = (c: string) => {
 const RING_GEO = new THREE.RingGeometry(0.85, 1, 64);
 const GHOST_GEO = new THREE.SphereGeometry(RULES.ballRadius, 20, 14);
 
+const textures = new Map<string, THREE.Texture>();
+function skinTexture(file: string) {
+  let t = textures.get(file);
+  if (!t) {
+    t = new THREE.TextureLoader().load(`/skins/${encodeURIComponent(file)}`);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 4;
+    textures.set(file, t);
+  }
+  return t;
+}
+
 type Fx = { mesh: THREE.Mesh; life: number; max: number; grow: number; fade: number };
 
 type Snap = { at: number; tick: number; arena: number; balls: { x: number; y: number; vx: number; vy: number; alive: boolean; dashIn: number }[] };
@@ -38,6 +50,7 @@ export class ArenaView {
   private flash: THREE.PointLight;
   private raf = 0;
   private zoom = 1;
+  private skins: string[] = [];
   you: number | null = null;
   players = 0;
 
@@ -133,6 +146,26 @@ export class ArenaView {
     }
     this.platform.scale.set(RULES.arenaStart, 1, RULES.arenaStart);
     this.rim.scale.set(RULES.arenaStart, RULES.arenaStart, 1);
+    this.applySkins();
+  }
+
+  /** Skin file per seat ("" keeps the seat's plain colour). */
+  setSkins(skins: string[]) {
+    if (skins.join("|") === this.skins.join("|")) return;
+    this.skins = [...skins];
+    this.applySkins();
+  }
+
+  private applySkins() {
+    this.balls.forEach((m, i) => {
+      const file = this.skins[i] || "";
+      const mat = m.material as THREE.MeshStandardMaterial;
+      const band = m.children[0] as THREE.Mesh | undefined;
+      mat.map = file ? skinTexture(file) : null;
+      mat.color.set(file ? "#ffffff" : COLORS[i % COLORS.length]);
+      mat.needsUpdate = true;
+      if (band) band.visible = !file; // the picture already shows the roll
+    });
   }
 
   pushSnapshot(d: number[]) {

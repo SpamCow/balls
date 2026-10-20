@@ -29,6 +29,7 @@
         </div>
         <div class="join-row">
           <label class="field"><span>Your name</span><input id="nick" maxlength="16" placeholder="Player" autocomplete="nickname" /></label>
+          <div id="skin-field" class="field" hidden><span>Ball skin</span><button type="button" id="skin-btn" class="btn small ghost skin-btn"></button></div>
           <form id="join-form" class="field">
             <span>Have a room code?</span>
             <div class="inline"><input id="join-code" maxlength="5" placeholder="ab3cd" autocapitalize="off" spellcheck="false" /><button class="btn small">Join</button></div>
@@ -114,6 +115,12 @@
         <div class="inline"><input id="out-amt" placeholder="Amount in ETH" inputmode="decimal" required /><button type="button" id="out-max" class="btn small ghost">Max</button><button class="btn small">Send</button></div>
       </form>
       <div class="acts" style="margin-top:14px"><a id="acct-link" class="muted small" target="_blank" rel="noopener">View on explorer</a><button type="button" id="sign-out" class="btn small ghost">Sign out</button></div>
+    </dialog>
+
+    <dialog id="skin-dialog">
+      <div class="dialog-head"><h3>Pick a skin</h3><form method="dialog"><button class="btn small ghost" aria-label="Close">✕</button></form></div>
+      <p class="muted small">Everyone in the match sees your skin.</p>
+      <div id="skin-grid" class="skin-grid"></div>
     </dialog>
 
     <dialog id="name-dialog">

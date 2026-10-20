@@ -43,6 +43,10 @@ The platform starts shrinking 3 seconds in and keeps closing until 70 seconds, s
 
 Trust assumption: players trust the game server to report the true winner (it can't send funds anywhere else).
 
+## Ball skins
+
+Players pick a skin from **Ball skin** on the home page, and everyone in the match sees it. The skins are the images in `web/public/skins/` in the code. To add one, put a PNG, JPG or WEBP file in that folder and redeploy (push to GitHub, or rebuild on a VPS). The file name becomes the skin's name, so `lava-rock.png` shows as "Lava rock"; use only letters, numbers, `-` and `_`. The picture wraps around the ball like a world map, so a wide image twice as wide as it is tall (for example 1024 × 512) looks best. To remove a skin, delete its file. The four sample skins can be replaced freely.
+
 ## Develop
 
 ```bash

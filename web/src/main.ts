@@ -26,6 +26,7 @@ type RoomState = {
   mode: "paid" | "practice" | "friends";
   code?: string;
   names: string[];
+  skins?: string[];
   host: number | null;
   round: number;
   matchId: string;
@@ -517,6 +518,48 @@ async function createFriends() {
   openRoom(roomId);
 }
 
+// ------------------------------------------------------------------ skins
+
+type Skin = { id: string; name: string; url: string };
+let skins: Skin[] = [];
+let mySkin = store<string>("bb.skin") ?? "";
+
+async function loadSkins() {
+  try {
+    skins = await (await fetch("/api/skins")).json();
+  } catch {
+    skins = [];
+  }
+  if (!skins.some((k) => k.id === mySkin)) mySkin = "";
+  $("#skin-field").hidden = skins.length === 0;
+  renderSkinButton();
+}
+
+function skinSwatch(k: Skin | null) {
+  return k ? `<span class="swatch" style="background-image:url('${k.url}')"></span>` : `<span class="swatch plain"></span>`;
+}
+
+function renderSkinButton() {
+  const k = skins.find((x) => x.id === mySkin) ?? null;
+  $("#skin-btn").innerHTML = `${skinSwatch(k)}<span>${esc(k?.name ?? "Plain")}</span>`;
+}
+
+function openSkins() {
+  const grid = $("#skin-grid");
+  grid.innerHTML = [null, ...skins]
+    .map((k) => `<button type="button" class="skin ${(k?.id ?? "") === mySkin ? "on" : ""}" data-id="${esc(k?.id ?? "")}">${skinSwatch(k)}<span>${esc(k?.name ?? "Plain")}</span></button>`)
+    .join("");
+  grid.querySelectorAll<HTMLButtonElement>(".skin").forEach((b) => {
+    b.onclick = () => {
+      mySkin = b.dataset.id ?? "";
+      store("bb.skin", mySkin);
+      renderSkinButton();
+      $<HTMLDialogElement>("#skin-dialog").close();
+    };
+  });
+  $<HTMLDialogElement>("#skin-dialog").showModal();
+}
+
 function nickname() {
   const v = $<HTMLInputElement>("#nick").value.trim().slice(0, 16);
   store("bb.nick", v);
@@ -534,7 +577,7 @@ function openRoom(id: string) {
   view.setPlayers(0, null);
   const token = account ? store<{ token: string }>(`bb.session.${account}`)?.token ?? "" : "";
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  const sock = new WebSocket(`${proto}://${location.host}/ws/${id}?token=${encodeURIComponent(token)}&name=${encodeURIComponent(nickname())}`);
+  const sock = new WebSocket(`${proto}://${location.host}/ws/${id}?token=${encodeURIComponent(token)}&name=${encodeURIComponent(nickname())}&skin=${encodeURIComponent(mySkin)}`);
   ws = sock;
   sock.onmessage = (e) => onRoomMessage(JSON.parse(e.data));
   sock.onclose = (e) => {
@@ -581,6 +624,7 @@ function onRoomMessage(msg: any) {
       const inRound = room.phase === "playing" || room.phase === "countdown" || room.phase === "over";
       if (view.players !== n && !(room.mode === "friends" && inRound)) view.setPlayers(n, room.you);
       view.you = room.you;
+      view.setSkins(room.skins ?? []);
       renderSeats();
       renderPhase();
       if (room.result && room.phase === "over") showResult();
@@ -664,7 +708,7 @@ function renderSeats() {
   for (let i = 0; i < n; i++) {
     const filled = room.mode === "practice" ? true : room.mode === "friends" ? !!room.seats[i] || room.bots.includes(i) : i < room.seats.length;
     const tag = room.mode === "paid" ? (filled ? "paid" : "open") : "";
-    html += `<div class="seat ${filled ? "" : "empty"} ${i === room.you ? "me" : ""}"><span class="ball" style="background:${filled ? COLORS[i] : "transparent"}"></span><span>${filled ? esc(seatName(i)) : "Open seat"}</span>${tag ? `<span class="tag">${tag}</span>` : ""}</div>`;
+    html += `<div class="seat ${filled ? "" : "empty"} ${i === room.you ? "me" : ""}"><span class="ball" style="background:${filled ? (room.skins?.[i] ? `center/cover url('/skins/${encodeURIComponent(room.skins[i])}')` : COLORS[i]) : "transparent"}"></span><span>${filled ? esc(seatName(i)) : "Open seat"}</span>${tag ? `<span class="tag">${tag}</span>` : ""}</div>`;
   }
   el.innerHTML = html;
   $("#pot").textContent =
@@ -1020,6 +1064,8 @@ async function boot() {
     else toast("Room codes are 5 letters and numbers.", "error");
   });
   $<HTMLInputElement>("#nick").value = store<string>("bb.nick") ?? "";
+  $("#skin-btn").onclick = openSkins;
+  loadSkins();
   $("#copy-invite").onclick = async () => {
     const url = `${location.origin}/#${room?.matchId}`;
     try {
