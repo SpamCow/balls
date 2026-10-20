@@ -603,10 +603,22 @@ function onRoomMessage(msg: any) {
     case "ev":
       for (const e of msg.e) {
         if (e.t === "bump") {
-          view.bump(e.a, e.b, e.force);
-          sfx.bump(e.force, e.a === room?.you || e.b === room?.you);
+          const mine = e.a === room?.you || e.b === room?.you;
+          if (e.da && e.db) {
+            view.clash(e.a, e.b);
+            sfx.clash();
+          } else if (e.da || e.db) {
+            view.dashHit(e.a, e.b, e.da ? e.a : e.b, e.force);
+            sfx.dashHit(mine);
+          } else {
+            view.bump(e.a, e.b, e.force);
+            sfx.bump(e.force, mine);
+          }
         }
-        if (e.t === "dash" && e.seat === room?.you) sfx.dash();
+        if (e.t === "dash") {
+          view.dash(e.seat);
+          sfx.dash(e.seat === room?.you);
+        }
         if (e.t === "out" && room) {
           sfx.fall(e.seat === room.you);
           const name = seatName(e.seat);

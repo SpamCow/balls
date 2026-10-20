@@ -157,3 +157,39 @@ dialog::backdrop { background: #0008; }
 .leaders .rank { color: var(--muted); font-weight: 700; }
 .leaders .me { color: var(--accent-2); }
 .mute-btn { background: none; border: 1px solid var(--line); color: var(--text); border-radius: 999px; width: 36px; height: 36px; cursor: pointer; font-size: 1rem; }
+
+/* hit effects drawn over the 3D view */
+.fx-hit, .fx-clash { position: fixed; inset: 0; pointer-events: none; z-index: 30; overflow: hidden; }
+.fx-star {
+  position: absolute; left: var(--x); top: var(--y); width: 150px; height: 150px; margin: -75px 0 0 -75px;
+  background: radial-gradient(circle, #fff 0 12%, var(--c) 13% 22%, transparent 23%),
+    repeating-conic-gradient(from 10deg, var(--c) 0 6deg, transparent 6deg 30deg);
+  -webkit-mask: radial-gradient(circle, #000 35%, transparent 70%); mask: radial-gradient(circle, #000 35%, transparent 70%);
+  animation: fx-star .6s ease-out forwards;
+}
+@keyframes fx-star { from { transform: scale(.2) rotate(0); opacity: 1; } to { transform: scale(1.4) rotate(25deg); opacity: 0; } }
+.fx-clash .fx-flash { position: absolute; inset: 0; background: radial-gradient(circle at var(--x) var(--y), #fff 0, rgba(255,255,255,.85) 18%, rgba(255,255,255,0) 60%); animation: fx-flash .5s ease-out forwards; }
+@keyframes fx-flash { 0% { opacity: 1; } 100% { opacity: 0; } }
+.fx-clash .fx-lines {
+  position: absolute; left: var(--x); top: var(--y); width: 300vmax; height: 300vmax; margin: -150vmax 0 0 -150vmax;
+  background: repeating-conic-gradient(rgba(255,255,255,.9) 0 .6deg, transparent .6deg 4deg);
+  -webkit-mask: radial-gradient(circle, transparent 6%, #000 9%, #000 40%, transparent 55%); mask: radial-gradient(circle, transparent 6%, #000 9%, #000 40%, transparent 55%);
+  animation: fx-lines 1.1s ease-out forwards;
+}
+@keyframes fx-lines { 0% { opacity: 0; transform: scale(.6) rotate(0); } 10% { opacity: 1; } 100% { opacity: 0; transform: scale(1.1) rotate(8deg); } }
+.fx-clash .fx-text {
+  position: absolute; left: var(--x); top: var(--y); transform: translate(-50%, -50%);
+  font: italic 900 clamp(48px, 11vw, 120px)/1 system-ui, sans-serif; letter-spacing: .02em;
+  background: var(--c); -webkit-background-clip: text; background-clip: text; color: transparent;
+  -webkit-text-stroke: 3px #fff; filter: drop-shadow(0 0 12px rgba(0,0,0,.8)) drop-shadow(0 6px 0 #000);
+  animation: fx-text 1.2s cubic-bezier(.2,1.6,.4,1) forwards;
+}
+@keyframes fx-text {
+  0% { transform: translate(-50%, -50%) scale(3) skewX(-12deg); opacity: 0; }
+  12% { transform: translate(-50%, -50%) scale(.9) skewX(-12deg); opacity: 1; }
+  18%, 24% { transform: translate(calc(-50% + 6px), calc(-50% - 4px)) scale(1) skewX(-12deg); }
+  21% { transform: translate(calc(-50% - 6px), calc(-50% + 4px)) scale(1) skewX(-12deg); }
+  75% { transform: translate(-50%, -50%) scale(1.05) skewX(-12deg); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(1.25) skewX(-12deg); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .fx-lines, .fx-flash { display: none; } }

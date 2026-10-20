@@ -48,6 +48,8 @@ export function setMuted(m: boolean) {
   if (master && ctx) master.gain.setTargetAtTime(m ? 0 : 0.7, ctx.currentTime, 0.02);
 }
 
+let lastBump = 0;
+
 function tone(freq: number, dur: number, opts: { type?: OscillatorType; vol?: number; slideTo?: number; delay?: number; attack?: number } = {}) {
   const c = ac();
   if (!c || !master || muted) return;
@@ -96,7 +98,6 @@ function noise(dur: number, opts: { vol?: number; from?: number; to?: number; q?
   src.stop(t + dur + 0.02);
 }
 
-let lastBump = 0;
 /** Two balls collide: a rubbery thump whose weight follows the hit's force. */
 export function bump(force: number, mine: boolean) {
   const c = ac();
@@ -112,10 +113,38 @@ export function bump(force: number, mine: boolean) {
   noise(0.06, { vol: vol * 0.35, from: 2400, to: 900, q: 0.8 });
 }
 
-/** The player dashes: a quick rising whoosh. */
-export function dash() {
-  noise(0.22, { vol: 0.35, from: 400, to: 3200, q: 1.5 });
-  tone(220, 0.16, { type: "sawtooth", vol: 0.06, slideTo: 660 });
+/** A dash: a deep kick, a bright rising whoosh and a little "shing" on top. */
+export function dash(mine = true) {
+  const v = mine ? 1 : 0.35;
+  tone(110, 0.18, { type: "sine", vol: 0.5 * v, slideTo: 45 }); // the kick you feel
+  noise(0.28, { vol: 0.4 * v, from: 300, to: 5000, q: 2.2 }); // air rushing past
+  tone(330, 0.2, { type: "sawtooth", vol: 0.07 * v, slideTo: 1320 });
+  tone(2637, 0.22, { type: "triangle", vol: 0.07 * v, delay: 0.06 }); // shing
+  tone(3520, 0.18, { type: "sine", vol: 0.05 * v, delay: 0.09 });
+}
+
+/** A dash lands on someone: a heavy smack with a crunchy crack. */
+export function dashHit(mine: boolean) {
+  const v = mine ? 1 : 0.5;
+  lastBump = ac()?.currentTime ?? 0; // this replaces the ordinary bump sound
+  tone(90, 0.35, { type: "sine", vol: 0.7 * v, slideTo: 35 });
+  tone(240, 0.12, { type: "square", vol: 0.12 * v, slideTo: 80 });
+  noise(0.12, { vol: 0.55 * v, from: 4000, to: 600, q: 0.7 });
+  tone(1760, 0.15, { type: "triangle", vol: 0.08 * v, delay: 0.02, slideTo: 1200 });
+}
+
+/** Two dashes meet head on: a swelling rush, a huge metallic clang and a boom that rings out. */
+export function clash() {
+  lastBump = (ac()?.currentTime ?? 0) + 0.5;
+  noise(0.18, { vol: 0.35, from: 600, to: 6000, q: 3 }); // the rush into each other
+  const d = 0.12;
+  tone(60, 1.1, { type: "sine", vol: 0.9, slideTo: 28, delay: d }); // boom
+  noise(0.5, { vol: 0.6, from: 5000, to: 300, q: 0.6, delay: d });
+  // clang: a cluster of inharmonic partials, like two blades meeting
+  for (const [f, vol] of [[523, 0.16], [1187, 0.12], [1663, 0.1], [2489, 0.08], [3271, 0.06]] as const)
+    tone(f, 1.2, { type: "triangle", vol, delay: d, slideTo: f * 0.985 });
+  tone(1046.5, 0.6, { type: "square", vol: 0.05, delay: d + 0.05 });
+  tone(2093, 0.9, { type: "sine", vol: 0.06, delay: d + 0.25 }); // the ring after
 }
 
 /** A ball goes over the edge: a falling whistle, louder when it's you. */

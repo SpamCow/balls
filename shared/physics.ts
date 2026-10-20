@@ -18,6 +18,7 @@ export const RULES = {
   minBounce: 6, // every hit separates at least this fast
   dashImpulse: 9,
   dashCooldown: 2.5,
+  dashWindow: 0.4, // seconds after a dash that a hit counts as a dash hit (for effects only)
   spawnRadius: 6,
   edgeGrace: 0.4, // a ball only drops once its center is this far past the rim (most of it hanging off)
 };
@@ -46,7 +47,8 @@ export type Sim = {
   events: SimEvent[];
 };
 
-export type SimEvent = { t: "bump"; a: number; b: number; force: number } | { t: "out"; seat: number } | { t: "dash"; seat: number };
+// da/db: whether ball a/b was mid-dash when they hit (both = a clash)
+export type SimEvent = { t: "bump"; a: number; b: number; force: number; da?: 1; db?: 1 } | { t: "out"; seat: number } | { t: "dash"; seat: number };
 
 export function createSim(players: number): Sim {
   const balls: Ball[] = [];
@@ -66,6 +68,10 @@ export function createSim(players: number): Sim {
     });
   }
   return { tick: 0, balls, arena: RULES.arenaStart, over: false, winnerSeat: null, events: [] };
+}
+
+function dashing(b: Ball, tick: number) {
+  return b.dashReadyAt - tick > Math.round((RULES.dashCooldown - RULES.dashWindow) * TICK_HZ);
 }
 
 export function arenaRadiusAt(tick: number) {
@@ -165,7 +171,10 @@ export function step(sim: Sim) {
       a.vy -= imp * ny;
       b.vx += imp * nx;
       b.vy += imp * ny;
-      sim.events.push({ t: "bump", a: a.seat, b: b.seat, force: imp });
+      const ev: SimEvent = { t: "bump", a: a.seat, b: b.seat, force: imp };
+      if (dashing(a, sim.tick)) ev.da = 1;
+      if (dashing(b, sim.tick)) ev.db = 1;
+      sim.events.push(ev);
     }
   }
 

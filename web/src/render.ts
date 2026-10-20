@@ -3,6 +3,20 @@ import * as THREE from "three";
 import { SNAP_STRIDE, RULES } from "../../shared/physics";
 import { COLORS } from "../../shared/config";
 
+// shared by every spark so effects don't allocate GPU objects per hit
+const SPARK_GEO = new THREE.SphereGeometry(0.08, 6, 4);
+const sparkMats = new Map<string, THREE.MeshBasicMaterial>();
+const sparkMat = (c: string) => {
+  let m = sparkMats.get(c);
+  if (!m) sparkMats.set(c, (m = new THREE.MeshBasicMaterial({ color: c })));
+  return m;
+};
+const RING_GEO = new THREE.RingGeometry(0.85, 1, 64);
+const GHOST_GEO = new THREE.SphereGeometry(RULES.ballRadius, 20, 14);
+const PILLAR_GEO = new THREE.CylinderGeometry(1, 1, 1, 24, 1, true);
+
+type Fx = { mesh: THREE.Mesh; life: number; max: number; grow: number; fade: number };
+
 type Snap = { at: number; tick: number; arena: number; balls: { x: number; y: number; vx: number; vy: number; alive: boolean; dashIn: number }[] };
 
 
@@ -19,6 +33,11 @@ export class ArenaView {
   private snaps: Snap[] = [];
   private shake = 0;
   private sparks: { mesh: THREE.Mesh; v: THREE.Vector3; life: number }[] = [];
+  private fx: Fx[] = [];
+  private trails = new Map<number, number>(); // seat -> seconds of dash trail left
+  private trailGap = 0;
+  private flash: THREE.PointLight;
+  private punch = 0; // camera push-in on a clash
   private raf = 0;
   private zoom = 1;
   you: number | null = null;
@@ -83,6 +102,11 @@ export class ArenaView {
     this.marker.visible = false;
     this.scene.add(this.marker);
 
+    // stays in the scene at zero so lighting a hit never recompiles shaders
+    this.flash = new THREE.PointLight("#ffffff", 0, 16, 1.5);
+    this.flash.position.y = 2;
+    this.scene.add(this.flash);
+
     addEventListener("resize", () => this.resize());
     this.resize();
   }
@@ -128,19 +152,97 @@ export class ArenaView {
   }
 
   bump(a: number, b: number, force: number) {
+    const mid = this.mid(a, b);
+    if (!mid) return;
+    this.shake = Math.min(0.6, this.shake + force * 0.03);
+    this.burst(mid, Math.min(14, 4 + Math.round(force)), ["#fff3b0"], 10, 0.5);
+  }
+
+  /** The ball starts a dash: a fading streak of afterimages behind it. */
+  dash(seat: number) {
+    if (this.balls[seat]) this.trails.set(seat, 0.35);
+  }
+
+  /** A dash lands on someone: a shockwave in the dasher's colour and a big spark burst. */
+  dashHit(a: number, b: number, dasher: number, force: number) {
+    const mid = this.mid(a, b);
+    if (!mid) return;
+    const c = COLORS[dasher % COLORS.length];
+    this.shake = Math.min(1.1, this.shake + 0.5 + force * 0.03);
+    this.burst(mid, 26, [c, "#ffffff", "#fff3b0"], 15, 0.65);
+    this.ring(mid, c, 0.4, 4.5, 0.45);
+    this.ring(mid, "#ffffff", 0.2, 2.5, 0.25);
+    this.light(mid, c, 40);
+    this.overlay(mid, "hit", "", c);
+  }
+
+  /** Two dashes meet head on: the big anime clash. */
+  clash(a: number, b: number) {
+    const mid = this.mid(a, b);
+    if (!mid) return;
+    const ca = COLORS[a % COLORS.length];
+    const cb = COLORS[b % COLORS.length];
+    this.shake = 1.8;
+    this.punch = 1;
+    this.burst(mid, 40, [ca, "#ffffff"], 20, 0.9);
+    this.burst(mid, 40, [cb, "#fff3b0"], 20, 0.9);
+    this.ring(mid, ca, 0.5, 8, 0.7);
+    this.ring(mid, cb, 0.3, 6, 0.6);
+    this.ring(mid, "#ffffff", 0.2, 11, 0.9);
+    // a column of light where they met
+    const pillar = new THREE.Mesh(PILLAR_GEO, new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+    pillar.position.set(mid.x, 4, mid.z);
+    pillar.scale.set(0.6, 8, 0.6);
+    this.scene.add(pillar);
+    this.fx.push({ mesh: pillar, life: 0.6, max: 0.6, grow: -0.8, fade: 0.6 });
+    this.light(mid, "#ffffff", 120);
+    this.overlay(mid, "clash", "CLASH!", `linear-gradient(90deg, ${ca}, ${cb})`);
+  }
+
+  private mid(a: number, b: number) {
     const A = this.balls[a]?.position;
     const B = this.balls[b]?.position;
-    if (!A || !B) return;
-    const mid = A.clone().add(B).multiplyScalar(0.5);
-    this.shake = Math.min(0.6, this.shake + force * 0.03);
-    const n = Math.min(14, 4 + Math.round(force));
+    return A && B ? A.clone().add(B).multiplyScalar(0.5) : null;
+  }
+
+  private burst(at: THREE.Vector3, n: number, colors: string[], speed: number, life: number) {
     for (let i = 0; i < n; i++) {
-      const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.08, 6, 4), new THREE.MeshBasicMaterial({ color: "#fff3b0" }));
-      mesh.position.copy(mid);
+      const mesh = new THREE.Mesh(SPARK_GEO, sparkMat(colors[i % colors.length]));
+      mesh.position.copy(at);
       this.scene.add(mesh);
-      const v = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.8 + 0.2, Math.random() - 0.5).multiplyScalar(10);
-      this.sparks.push({ mesh, v, life: 0.5 });
+      const v = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.8 + 0.2, Math.random() - 0.5).normalize().multiplyScalar(speed * (0.5 + Math.random() * 0.7));
+      this.sparks.push({ mesh, v, life: life * (0.6 + Math.random() * 0.6) });
     }
+  }
+
+  /** A flat shockwave ring spreading out across the floor. */
+  private ring(at: THREE.Vector3, color: string, from: number, to: number, life: number) {
+    const mesh = new THREE.Mesh(RING_GEO, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(at.x, 0.05, at.z);
+    mesh.scale.setScalar(from);
+    this.scene.add(mesh);
+    this.fx.push({ mesh, life, max: life, grow: (to - from) / life, fade: 1 });
+  }
+
+  private light(at: THREE.Vector3, color: string, intensity: number) {
+    this.flash.position.set(at.x, 2, at.z);
+    this.flash.color.set(color);
+    this.flash.intensity = Math.max(this.flash.intensity, intensity);
+  }
+
+  /** Screen-space part of a hit: an impact star, or the full clash with speed lines and a flash. */
+  private overlay(at: THREE.Vector3, kind: "hit" | "clash", text: string, color: string) {
+    const p = at.clone().project(this.camera);
+    const r = this.canvas.getBoundingClientRect();
+    const el = document.createElement("div");
+    el.className = `fx-${kind}`;
+    el.style.setProperty("--x", `${r.left + ((p.x + 1) / 2) * r.width}px`);
+    el.style.setProperty("--y", `${r.top + ((1 - p.y) / 2) * r.height}px`);
+    el.style.setProperty("--c", color);
+    el.innerHTML = kind === "clash" ? `<i class="fx-lines"></i><i class="fx-flash"></i><b class="fx-text">${text}</b>` : `<i class="fx-star"></i>`;
+    document.body.append(el);
+    setTimeout(() => el.remove(), kind === "clash" ? 1300 : 650);
   }
 
   start() {
@@ -208,6 +310,40 @@ export class ArenaView {
       this.balls[i]?.position.set(f.x, f.y, f.z);
     }
 
+    // dash afterimages
+    this.trailGap -= dt;
+    const spawn = this.trailGap <= 0;
+    if (spawn) this.trailGap = 0.025;
+    for (const [seat, left] of this.trails) {
+      const m = this.balls[seat];
+      if (!m || left <= 0 || this.falling.has(seat)) {
+        this.trails.delete(seat);
+        continue;
+      }
+      this.trails.set(seat, left - dt);
+      if (!spawn) continue;
+      const ghost = new THREE.Mesh(GHOST_GEO, new THREE.MeshBasicMaterial({ color: COLORS[seat % COLORS.length], transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending, depthWrite: false }));
+      ghost.position.copy(m.position);
+      this.scene.add(ghost);
+      this.fx.push({ mesh: ghost, life: 0.22, max: 0.22, grow: -2.5, fade: 0.45 });
+    }
+
+    for (const f of this.fx) {
+      f.life -= dt;
+      const mat = f.mesh.material as THREE.MeshBasicMaterial;
+      mat.opacity = Math.max(0, (f.life / f.max) * f.fade);
+      if (f.mesh.geometry === PILLAR_GEO) f.mesh.scale.x = f.mesh.scale.z = Math.max(0.05, f.mesh.scale.x + f.grow * dt);
+      else f.mesh.scale.setScalar(Math.max(0.05, f.mesh.scale.x + f.grow * dt));
+    }
+    this.fx = this.fx.filter((f) => {
+      if (f.life > 0) return true;
+      this.scene.remove(f.mesh);
+      (f.mesh.material as THREE.Material).dispose();
+      return false;
+    });
+    this.flash.intensity *= Math.pow(0.0005, dt);
+    if (this.flash.intensity < 0.05) this.flash.intensity = 0;
+
     for (const s of this.sparks) {
       s.v.y -= 25 * dt;
       s.mesh.position.addScaledVector(s.v, dt);
@@ -226,7 +362,9 @@ export class ArenaView {
     } else this.marker.visible = false;
 
     this.shake *= Math.pow(0.02, dt);
-    this.camera.position.set((Math.random() - 0.5) * this.shake, 21 * this.zoom + (Math.random() - 0.5) * this.shake, 17 * this.zoom);
+    this.punch *= Math.pow(0.01, dt);
+    const z = this.zoom * (1 - 0.12 * this.punch);
+    this.camera.position.set((Math.random() - 0.5) * this.shake, 21 * z + (Math.random() - 0.5) * this.shake, 17 * z);
     this.camera.lookAt(0, -1, 1);
   }
 
