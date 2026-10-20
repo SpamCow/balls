@@ -123,10 +123,17 @@ export function step(sim: Sim) {
       b.vy += ay;
     }
     if (b.input.dash && sim.tick >= b.dashReadyAt) {
-      const len = Math.hypot(b.input.x, b.input.y);
+      // dash where you're steering, or straight ahead if the stick is centred
+      let dx = b.input.x;
+      let dy = b.input.y;
+      if (Math.hypot(dx, dy) <= 0.1) {
+        dx = b.vx;
+        dy = b.vy;
+      }
+      const len = Math.hypot(dx, dy);
       if (len > 0.1) {
-        b.vx += (b.input.x / len) * R.dashImpulse;
-        b.vy += (b.input.y / len) * R.dashImpulse;
+        b.vx += (dx / len) * R.dashImpulse;
+        b.vy += (dy / len) * R.dashImpulse;
         b.dashReadyAt = sim.tick + Math.round(R.dashCooldown * TICK_HZ);
         sim.events.push({ t: "dash", seat: b.seat });
       }

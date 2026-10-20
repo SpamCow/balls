@@ -592,16 +592,31 @@ function openRoom(id: string) {
   };
   history.replaceState(null, "", `#${id}`);
   if (inputTimer) clearInterval(inputTimer);
-  let lastSent = "";
-  inputTimer = setInterval(() => {
-    if (!room || room.phase !== "playing" || room.you === null || ws?.readyState !== WebSocket.OPEN) return;
-    const c = readControls();
-    const msg = JSON.stringify({ t: "in", x: +c.x.toFixed(3), y: +c.y.toFixed(3), dash: c.dash });
-    if (msg !== lastSent || c.dash) ws.send(msg);
-    lastSent = msg;
-    const d = view.dashReadyIn(room.you);
-    $("#dash-meter").style.setProperty("--p", String(Math.max(0, 1 - d / 150)));
-  }, 1000 / 30);
+  lastSent = "";
+  inputTimer = setInterval(sendInput, 1000 / 30);
+}
+
+let lastSent = "";
+let localDashAt = 0;
+function sendInput() {
+  if (!room || room.phase !== "playing" || room.you === null || ws?.readyState !== WebSocket.OPEN) return;
+  const c = readControls();
+  const msg = JSON.stringify({ t: "in", x: +c.x.toFixed(3), y: +c.y.toFixed(3), dash: c.dash });
+  if (msg !== lastSent || c.dash) ws.send(msg);
+  lastSent = msg;
+  const d = view.dashReadyIn(room.you);
+  $("#dash-meter").style.setProperty("--p", String(Math.max(0, 1 - d / 150)));
+}
+
+/** Dash pressed: send it now, and play the whoosh straight away instead of after the round trip. */
+function dashNow() {
+  if (!room || room.phase !== "playing" || room.you === null) return;
+  if (view.dashReadyIn(room.you) === 0 && performance.now() - localDashAt > 500) {
+    localDashAt = performance.now();
+    sfx.dash(true);
+    view.dash(room.you);
+  }
+  sendInput();
 }
 
 function leaveRoom() {
@@ -653,8 +668,12 @@ function onRoomMessage(msg: any) {
           else sfx.bump(e.force, mine);
         }
         if (e.t === "dash") {
-          view.dash(e.seat);
-          sfx.dash(e.seat === room?.you);
+          const mine = e.seat === room?.you;
+          // our own dash already played when the button was pressed
+          if (!mine || performance.now() - localDashAt > 600) {
+            view.dash(e.seat);
+            sfx.dash(mine);
+          }
         }
         if (e.t === "out" && room) {
           sfx.fall(e.seat === room.you);
@@ -1001,7 +1020,7 @@ async function boot() {
   });
   view = new ArenaView($<HTMLCanvasElement>("#arena"));
   view.start();
-  readControls = createControls($("#match"));
+  readControls = createControls($("#match"), dashNow);
   discoverWallets(() => {});
   sfx.unlockAudio();
   const mute = $("#mute-btn");

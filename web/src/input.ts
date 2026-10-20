@@ -1,7 +1,7 @@
 // Keyboard (WASD / arrows + space) and a touch joystick (left half) + dash button.
 export type Controls = { x: number; y: number; dash: boolean };
 
-export function createControls(root: HTMLElement) {
+export function createControls(root: HTMLElement, onDash: () => void = () => {}) {
   const keys = new Set<string>();
   const state = { touchX: 0, touchY: 0, dashQueued: false };
 
@@ -9,7 +9,10 @@ export function createControls(root: HTMLElement) {
     if ((e.target as HTMLElement)?.tagName === "INPUT") return;
     keys.add(e.code);
     if (e.code === "Space") {
-      state.dashQueued = true;
+      if (!e.repeat) {
+        state.dashQueued = true;
+        onDash();
+      }
       e.preventDefault();
     }
   });
@@ -61,11 +64,15 @@ export function createControls(root: HTMLElement) {
   };
   root.addEventListener("touchend", end);
   root.addEventListener("touchcancel", end);
-  dashBtn.addEventListener("touchstart", (e) => {
+  // pointerdown fires on first contact; send the dash right away instead of waiting for the next input tick
+  dashBtn.addEventListener("pointerdown", (e) => {
     state.dashQueued = true;
+    dashBtn.classList.add("down");
+    onDash();
     e.preventDefault();
   });
-  dashBtn.addEventListener("mousedown", () => (state.dashQueued = true));
+  for (const ev of ["pointerup", "pointercancel", "pointerleave"]) dashBtn.addEventListener(ev, () => dashBtn.classList.remove("down"));
+  dashBtn.addEventListener("touchstart", (e) => e.preventDefault(), { passive: false });
 
   /** Screen-space input; up on screen is -y. */
   return function read(): Controls {

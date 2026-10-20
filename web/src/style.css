@@ -167,3 +167,5 @@ dialog::backdrop { background: #0008; }
 .skin .swatch { width: 54px; height: 54px; }
 .skin.on { border-color: var(--accent-2); box-shadow: 0 0 0 2px var(--accent-2); }
 .seat .ball { background-size: cover; }
+.dash-btn { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
+.dash-btn.down { transform: scale(0.92); filter: brightness(1.2); }

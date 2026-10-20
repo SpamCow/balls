@@ -27,7 +27,7 @@ export type Config = {
 type Result = { winnerSeat: number | null; winner: Address; sig: Hex | null };
 type Conn = { ws: WebSocket; address: Address | null; name: string; seat: number | null; msgs: number; windowStart: number };
 
-const PRACTICE_FILL_SEC = 8;
+const PRACTICE_FILL_SEC = 5;
 const MAX_MSG_BYTES = 256;
 const MAX_MSGS_PER_SEC = 90;
 const BOT_LEVEL = 0.75;
