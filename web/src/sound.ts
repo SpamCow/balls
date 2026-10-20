@@ -164,3 +164,47 @@ export function coin() {
   tone(1318.5, 0.08, { type: "square", vol: 0.08 });
   tone(1975.5, 0.3, { type: "square", vol: 0.08, delay: 0.07 });
 }
+
+// ------------------------------------------------------------- battle mode
+
+/** Picked up a weapon crate: a quick rising double blip. */
+export function pickup(mine: boolean) {
+  const v = mine ? 1 : 0.4;
+  tone(660, 0.08, { type: "square", vol: 0.1 * v });
+  tone(990, 0.14, { type: "square", vol: 0.1 * v, delay: 0.07 });
+}
+
+/** A laser shot: a falling "pew". */
+export function zap(mine: boolean) {
+  tone(1800, 0.18, { type: "sawtooth", vol: (mine ? 0.12 : 0.05), slideTo: 300 });
+}
+
+/** A rocket launch or a weapon switching on: a short whoosh up. */
+export function launch(mine: boolean) {
+  noise(0.35, { vol: mine ? 0.3 : 0.12, from: 400, to: 3000, q: 1.5 });
+  tone(220, 0.3, { type: "triangle", vol: mine ? 0.12 : 0.05, slideTo: 660 });
+}
+
+/** An explosion: a deep boom with a crackle. */
+export function boom() {
+  tone(70, 0.6, { type: "sine", vol: 0.6, slideTo: 30 });
+  noise(0.5, { vol: 0.45, from: 1500, to: 120, q: 0.6 });
+}
+
+let lastWhack = 0;
+/** The hammer connects: a heavy metal clonk. */
+export function whack(mine: boolean) {
+  const c = ac();
+  if (!c || c.currentTime - lastWhack < 0.06) return;
+  lastWhack = c.currentTime;
+  const v = mine ? 1 : 0.5;
+  tone(120, 0.25, { type: "sine", vol: 0.55 * v, slideTo: 50 });
+  tone(1250, 0.12, { type: "square", vol: 0.06 * v, slideTo: 900 });
+  noise(0.08, { vol: 0.35 * v, from: 3000, to: 800, q: 0.9 });
+}
+
+/** A ball runs out of HP: a pop. */
+export function pop(mine: boolean) {
+  tone(500, 0.12, { type: "square", vol: mine ? 0.2 : 0.1, slideTo: 1400 });
+  noise(0.15, { vol: mine ? 0.35 : 0.18, from: 5000, to: 1500, q: 0.7 });
+}

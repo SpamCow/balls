@@ -4,6 +4,7 @@
 import { getAddress, zeroAddress, type Address, type Hex } from "viem";
 import type { WebSocket } from "ws";
 import { createSim, step, setInput, cleanInput, snapshot, botInput, TICK_HZ, type Sim } from "../shared/physics";
+import { createBattleSim, stepBattle, battleSnapshot, battleBotInput } from "../shared/battle";
 import { COUNTDOWN_SEC } from "../shared/config";
 import { MatchStatus } from "../shared/eip712";
 import { readMatch, settleMatch, signResult } from "./chain";
@@ -13,9 +14,11 @@ import type { Env } from "./env";
 
 export type Phase = "waiting" | "countdown" | "playing" | "over" | "expired";
 export type Mode = "paid" | "practice" | "friends";
+export type Variant = "classic" | "battle";
 
 export type Config = {
   mode: Mode;
+  variant?: Variant; // battle mode is free only (practice and friends rooms)
   matchId: string;
   code?: string;
   tierId?: string;
@@ -57,9 +60,11 @@ export class Room {
   private poller: ReturnType<typeof setInterval> | null = null;
   private polling = false;
   private guestSeq = 0;
+  private variant: Variant;
 
   constructor(readonly cfg: Config, private env: Env, private persist: Persist) {
     if (cfg.mode !== "paid") this.seats = Array(cfg.maxPlayers).fill(null);
+    this.variant = cfg.mode === "paid" ? "classic" : cfg.variant ?? "classic";
   }
 
   /** A paid match whose game state was lost in a restart: call it off so everyone is refunded at once. */
@@ -172,7 +177,10 @@ export class Room {
       // the player's payment just confirmed: re-read the chain, then always tell them where they stand
       this.pollChain().then(() => this.send(c, { t: "seats", you: this.seatOf(c), ...this.publicState() }));
     } else if (msg?.t === "begin" && this.cfg.mode === "friends" && this.seatOf(c) === this.hostSeat) {
-      if (this.phase === "waiting" || this.phase === "over") this.resetForRound(msg.bots !== false);
+      if (this.phase === "waiting" || this.phase === "over") {
+        this.variant = msg.battle === true ? "battle" : "classic";
+        this.resetForRound(msg.bots !== false);
+      }
     } else if (msg?.t === "ping") {
       this.send(c, { t: "pong", c: msg.c });
     }
@@ -205,6 +213,7 @@ export class Room {
     const cfg = this.cfg;
     return {
       mode: cfg.mode,
+      variant: this.variant,
       matchId: cfg.matchId,
       code: cfg.code,
       tierId: cfg.tierId,
@@ -310,7 +319,8 @@ export class Room {
       }
     }
     this.round++;
-    this.sim = createSim(n);
+    const battle = this.variant === "battle";
+    this.sim = battle ? createBattleSim(n) : createSim(n);
     this.phase = "playing";
     this.broadcastSeats();
     this.broadcast({ t: "start", round: this.round });
@@ -318,10 +328,11 @@ export class Room {
     let ticks = 0;
     this.loop = setInterval(() => {
       const sim = this.sim!;
-      for (const b of this.bots) setInput(sim, b, botInput(sim, b, BOT_LEVEL));
-      step(sim);
+      for (const b of this.bots) setInput(sim, b, battle ? battleBotInput(sim, b, BOT_LEVEL) : botInput(sim, b, BOT_LEVEL));
+      if (battle) stepBattle(sim);
+      else step(sim);
       if (sim.events.length) this.broadcast({ t: "ev", e: sim.events });
-      if (++ticks % 2 === 0 || sim.over) this.broadcast({ t: "s", d: snapshot(sim) });
+      if (++ticks % 2 === 0 || sim.over) this.broadcast(battle ? { t: "s", d: snapshot(sim), b: battleSnapshot(sim) } : { t: "s", d: snapshot(sim) });
       if (sim.over) {
         clearInterval(this.loop!);
         this.loop = null;

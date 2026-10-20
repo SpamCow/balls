@@ -1,3 +1,5 @@
+import type { Battle, BattleEvent } from "./battle";
+
 // Deterministic Bumper Balls simulation. Runs only on the game server; clients
 // send inputs and render the snapshots they receive.
 
@@ -23,7 +25,8 @@ export const RULES = {
   edgeGrace: 0.4, // a ball only drops once its center is this far past the rim (most of it hanging off)
 };
 
-export type Input = { x: number; y: number; dash: boolean };
+// use: fire or start the held weapon (battle mode only)
+export type Input = { x: number; y: number; dash: boolean; use?: boolean };
 
 export type Ball = {
   seat: number;
@@ -45,10 +48,15 @@ export type Sim = {
   over: boolean;
   winnerSeat: number | null; // null with over=true means no winner (refund)
   events: SimEvent[];
+  battle?: Battle; // set in battle mode (see battle.ts)
 };
 
 // da/db: whether ball a/b was mid-dash when they hit (both = a clash)
-export type SimEvent = { t: "bump"; a: number; b: number; force: number; da?: 1; db?: 1 } | { t: "out"; seat: number } | { t: "dash"; seat: number };
+export type SimEvent =
+  | { t: "bump"; a: number; b: number; force: number; da?: 1; db?: 1 }
+  | { t: "out"; seat: number; cause?: "hole" | "ko" }
+  | { t: "dash"; seat: number }
+  | BattleEvent;
 
 export function createSim(players: number): Sim {
   const balls: Ball[] = [];
@@ -70,7 +78,7 @@ export function createSim(players: number): Sim {
   return { tick: 0, balls, arena: RULES.arenaStart, over: false, winnerSeat: null, events: [] };
 }
 
-function dashing(b: Ball, tick: number) {
+export function dashing(b: Ball, tick: number) {
   return b.dashReadyAt - tick > Math.round((RULES.dashCooldown - RULES.dashWindow) * TICK_HZ);
 }
 
@@ -93,66 +101,62 @@ export function cleanInput(raw: unknown): Input {
     x /= len;
     y /= len;
   }
-  return { x, y, dash: r.dash === true };
+  return { x, y, dash: r.dash === true, use: r.use === true };
 }
 
 export function setInput(sim: Sim, seat: number, input: Input) {
   const b = sim.balls[seat];
   if (!b) return;
-  if (input.x !== 0 || input.y !== 0 || input.dash) b.active = true;
-  // a dash press latches until the next tick consumes it
-  b.input = { x: input.x, y: input.y, dash: input.dash || b.input.dash };
+  if (input.x !== 0 || input.y !== 0 || input.dash || input.use) b.active = true;
+  // a dash (or weapon) press latches until the next tick consumes it
+  b.input = { x: input.x, y: input.y, dash: input.dash || b.input.dash, use: !!input.use || !!b.input.use };
 }
 
-export function step(sim: Sim) {
-  if (sim.over) return;
-  sim.events = [];
-  sim.tick++;
-  sim.arena = arenaRadiusAt(sim.tick);
+/** Steering, dash, drag and movement for one ball for one tick. accelScale and drag let battle mode's ice change the grip. */
+export function drive(sim: Sim, b: Ball, accelScale = 1, drag = RULES.drag) {
   const R = RULES;
-  const alive = sim.balls.filter((b) => b.alive);
-
-  for (const b of alive) {
-    // steering can't push you past maxSpeed, but it can always slow you down
-    const ax = b.input.x * R.accel * DT;
-    const ay = b.input.y * R.accel * DT;
-    const before = Math.hypot(b.vx, b.vy);
-    const after = Math.hypot(b.vx + ax, b.vy + ay);
-    if (after <= R.maxSpeed || after < before) {
-      b.vx += ax;
-      b.vy += ay;
-    }
-    if (b.input.dash && sim.tick >= b.dashReadyAt) {
-      // dash where you're steering, or straight ahead if the stick is centred
-      let dx = b.input.x;
-      let dy = b.input.y;
-      if (Math.hypot(dx, dy) <= 0.1) {
-        dx = b.vx;
-        dy = b.vy;
-      }
-      const len = Math.hypot(dx, dy);
-      if (len > 0.1) {
-        b.vx += (dx / len) * R.dashImpulse;
-        b.vy += (dy / len) * R.dashImpulse;
-        b.dashReadyAt = sim.tick + Math.round(R.dashCooldown * TICK_HZ);
-        sim.events.push({ t: "dash", seat: b.seat });
-      }
-    }
-    b.input.dash = false;
-    const damp = Math.max(0, 1 - R.drag * DT);
-    b.vx *= damp;
-    b.vy *= damp;
-    const sp = Math.hypot(b.vx, b.vy);
-    // hits and dashes can exceed maxSpeed, up to this hard cap
-    if (sp > R.maxSpeed * 1.8) {
-      b.vx *= (R.maxSpeed * 1.8) / sp;
-      b.vy *= (R.maxSpeed * 1.8) / sp;
-    }
-    b.x += b.vx * DT;
-    b.y += b.vy * DT;
+  // steering can't push you past maxSpeed, but it can always slow you down
+  const ax = b.input.x * R.accel * accelScale * DT;
+  const ay = b.input.y * R.accel * accelScale * DT;
+  const before = Math.hypot(b.vx, b.vy);
+  const after = Math.hypot(b.vx + ax, b.vy + ay);
+  if (after <= R.maxSpeed || after < before) {
+    b.vx += ax;
+    b.vy += ay;
   }
+  if (b.input.dash && sim.tick >= b.dashReadyAt) {
+    // dash where you're steering, or straight ahead if the stick is centred
+    let dx = b.input.x;
+    let dy = b.input.y;
+    if (Math.hypot(dx, dy) <= 0.1) {
+      dx = b.vx;
+      dy = b.vy;
+    }
+    const len = Math.hypot(dx, dy);
+    if (len > 0.1) {
+      b.vx += (dx / len) * R.dashImpulse;
+      b.vy += (dy / len) * R.dashImpulse;
+      b.dashReadyAt = sim.tick + Math.round(R.dashCooldown * TICK_HZ);
+      sim.events.push({ t: "dash", seat: b.seat });
+    }
+  }
+  b.input.dash = false;
+  const damp = Math.max(0, 1 - drag * DT);
+  b.vx *= damp;
+  b.vy *= damp;
+  const sp = Math.hypot(b.vx, b.vy);
+  // hits and dashes can exceed maxSpeed, up to this hard cap
+  if (sp > R.maxSpeed * 1.8) {
+    b.vx *= (R.maxSpeed * 1.8) / sp;
+    b.vy *= (R.maxSpeed * 1.8) / sp;
+  }
+  b.x += b.vx * DT;
+  b.y += b.vy * DT;
+}
 
-  // ball-ball collisions (equal mass)
+/** Ball-ball collisions (equal mass). onHit lets battle mode add damage to each hit. */
+export function collide(sim: Sim, alive: Ball[], onHit?: (a: Ball, b: Ball, imp: number, nx: number, ny: number) => void) {
+  const R = RULES;
   const d2min = (R.ballRadius * 2) ** 2;
   for (let i = 0; i < alive.length; i++) {
     for (let j = i + 1; j < alive.length; j++) {
@@ -182,8 +186,22 @@ export function step(sim: Sim) {
       if (dashing(a, sim.tick)) ev.da = 1;
       if (dashing(b, sim.tick)) ev.db = 1;
       sim.events.push(ev);
+      onHit?.(a, b, imp, nx, ny);
     }
   }
+}
+
+export function step(sim: Sim) {
+  if (sim.over) return;
+  sim.events = [];
+  sim.tick++;
+  sim.arena = arenaRadiusAt(sim.tick);
+  const R = RULES;
+  const alive = sim.balls.filter((b) => b.alive);
+
+  for (const b of alive) drive(sim, b);
+
+  collide(sim, alive);
 
   // falling off
   for (const b of alive) {
@@ -204,13 +222,13 @@ export function step(sim: Sim) {
   if (sim.tick >= R.hardLimit * TICK_HZ) return finish(sim, nearest(left));
 }
 
-function nearest(balls: Ball[]): number | null {
+export function nearest(balls: Ball[]): number | null {
   const ds = balls.map((b) => Math.hypot(b.x, b.y)).sort((a, b) => a - b);
   if (ds.length > 1 && Math.abs(ds[0] - ds[1]) < 1e-6) return null; // exact tie: refund
   return balls.reduce((m, b) => (Math.hypot(b.x, b.y) < Math.hypot(m.x, m.y) ? b : m)).seat;
 }
 
-function finish(sim: Sim, seat: number | null) {
+export function finish(sim: Sim, seat: number | null) {
   sim.over = true;
   // nobody ever touched their controls: nothing was won, refund everyone
   sim.winnerSeat = sim.balls.some((b) => b.active) ? seat : null;

@@ -6,7 +6,7 @@ import { SNAP_STRIDE } from "../../shared/physics";
 import { MatchStatus } from "../../shared/eip712";
 import { discoverWallets, walletOptions, ensureChain, clients } from "./wallet";
 import type { PrivyApi, PrivyState } from "./privy";
-import { ArenaView } from "./render";
+import { ArenaView, WEAPON_ICON, WEAPON_NAME } from "./render";
 import { createControls } from "./input";
 import * as sfx from "./sound";
 
@@ -24,6 +24,7 @@ type Config = {
 
 type RoomState = {
   mode: "paid" | "practice" | "friends";
+  variant?: "classic" | "battle";
   code?: string;
   names: string[];
   skins?: string[];
@@ -509,8 +510,8 @@ async function joinPaid(tier: Tier, stale?: string): Promise<void> {
   }
 }
 
-async function joinPractice() {
-  const r = await fetch("/api/practice", { method: "POST" });
+async function joinPractice(battle = false) {
+  const r = await fetch(`/api/practice${battle ? "?battle=1" : ""}`, { method: "POST" });
   const { roomId } = await r.json();
   openRoom(roomId);
 }
@@ -604,11 +605,42 @@ let localDashAt = 0;
 function sendInput() {
   if (!room || room.phase !== "playing" || room.you === null || ws?.readyState !== WebSocket.OPEN) return;
   const c = readControls();
-  const msg = JSON.stringify({ t: "in", x: +c.x.toFixed(3), y: +c.y.toFixed(3), dash: c.dash });
-  if (msg !== lastSent || c.dash) ws.send(msg);
+  const msg = JSON.stringify({ t: "in", x: +c.x.toFixed(3), y: +c.y.toFixed(3), dash: c.dash, ...(c.use ? { use: true } : {}) });
+  if (msg !== lastSent || c.dash || c.use) ws.send(msg);
   lastSent = msg;
   const d = view.dashReadyIn(room.you);
   $("#dash-meter").style.setProperty("--p", String(Math.max(0, 1 - d / 150)));
+  renderWeapon();
+}
+
+/** Battle mode: what you're holding, under the dash meter (and on the phone weapon button). */
+let lastWeapon = "";
+function renderWeapon() {
+  const f = room?.variant === "battle" && room.you !== null && room.phase === "playing" ? view.fighter(room.you) : null;
+  const slot = $("#weapon");
+  const btn = $(".use-btn");
+  slot.hidden = btn.hidden = !f;
+  if (!f) return;
+  const touch = matchMedia("(pointer: coarse)").matches;
+  const key = touch ? "tap the weapon button" : "E";
+  const has = f.weapon >= 0;
+  const left = f.on > 0 ? `${Math.ceil(f.on / 60)}s` : f.weapon === 1 || f.weapon === 5 ? `×${f.ammo}` : "";
+  const html = has
+    ? `<span class="ic">${WEAPON_ICON[f.weapon]}</span><b>${WEAPON_NAME[f.weapon]}</b>${left ? `<span>${left}</span>` : ""}${f.on > 0 ? "" : `<span class="muted">${key}</span>`}`
+    : `<span>Grab a ❓ crate for a weapon</span>`;
+  if (html !== lastWeapon) {
+    lastWeapon = html;
+    slot.innerHTML = html;
+    slot.classList.toggle("empty", !has);
+    btn.classList.toggle("empty", !has);
+    btn.querySelector(".use-icon")!.textContent = has ? WEAPON_ICON[f.weapon] : "❓";
+    btn.querySelector(".use-ammo")!.textContent = left;
+  }
+}
+
+/** Weapon pressed: send it now rather than on the next input tick. */
+function useNow() {
+  sendInput();
 }
 
 /** Dash pressed: send it now, and play the whoosh straight away instead of after the round trip. */
@@ -640,7 +672,8 @@ function onRoomMessage(msg: any) {
       room.startsAt = msg.phase === "countdown" ? Date.now() + Number(msg.startsIn || 0) : 0;
       const n = playerCount(room);
       const inRound = room.phase === "playing" || room.phase === "countdown" || room.phase === "over";
-      if (view.players !== n && !(room.mode === "friends" && inRound)) view.setPlayers(n, room.you);
+      const battle = room.variant === "battle";
+      if ((view.players !== n || view.battle !== battle) && !(room.mode === "friends" && inRound)) view.setPlayers(n, room.you, battle);
       view.you = room.you;
       view.setSkins(room.skins ?? []);
       renderSeats();
@@ -657,9 +690,9 @@ function onRoomMessage(msg: any) {
       break;
     case "s": {
       const n = Math.floor((msg.d.length - 2) / SNAP_STRIDE);
-      if (resetView || view.players !== n) view.setPlayers(n, room?.you ?? null);
+      if (resetView || view.players !== n || view.battle !== !!msg.b) view.setPlayers(n, room?.you ?? null, !!msg.b);
       resetView = false;
-      view.pushSnapshot(msg.d);
+      view.pushSnapshot(msg.d, msg.b);
       break;
     }
     case "ev":
@@ -679,9 +712,30 @@ function onRoomMessage(msg: any) {
           }
         }
         if (e.t === "out" && room) {
-          sfx.fall(e.seat === room.you);
+          const me = e.seat === room.you;
           const name = seatName(e.seat);
-          toast(e.seat === room.you ? "You fell off!" : `${name} fell off`);
+          if (e.cause === "ko") {
+            view.ko(e.seat);
+            sfx.pop(me);
+            toast(me ? "You got knocked out!" : `${name} got knocked out`);
+          } else {
+            sfx.fall(me);
+            toast(me ? (e.cause === "hole" ? "You fell in the hole!" : "You fell off!") : `${name} ${e.cause === "hole" ? "fell in the hole" : "fell off"}`);
+          }
+        }
+        if (e.t === "hit") {
+          view.hit(e.x, e.y, e.dmg);
+          if (e.k === "hammer") sfx.whack(e.seat === room?.you);
+        }
+        if (e.t === "boom") {
+          view.boom(e.x, e.y, e.r);
+          sfx.boom();
+        }
+        if (e.t === "crate") sfx.pickup(e.seat === room?.you);
+        if (e.t === "use") {
+          const mine = e.seat === room?.you;
+          if (e.w === "laser") sfx.zap(mine);
+          else if (e.w !== "mine") sfx.launch(mine);
         }
       }
       break;
@@ -730,12 +784,15 @@ function renderSeats() {
     room.mode === "paid" && room.entryFee
       ? `Pot ${eth(BigInt(room.entryFee) * BigInt(room.maxPlayers))}`
       : room.mode === "friends"
-        ? `Room ${room.code?.toUpperCase()} · free`
-        : "Practice · free";
+        ? `Room ${room.code?.toUpperCase()} · ${room.variant === "battle" ? "battle · " : ""}free`
+        : room.variant === "battle"
+          ? "Battle · free"
+          : "Practice · free";
   const isHost = room.mode === "friends" && room.you !== null && room.you === room.host;
   $("#friends-bar").hidden = room.mode !== "friends" || room.phase === "playing" || room.phase === "countdown";
   $("#start-btn").hidden = !isHost;
   $("#bots-label").hidden = !isHost;
+  $("#battle-label").hidden = !isHost;
 }
 
 let countdownTimer: ReturnType<typeof setInterval> | null = null;
@@ -745,6 +802,9 @@ function renderPhase() {
   if (countdownTimer) clearInterval(countdownTimer);
   $("#controls-hint").hidden = room.phase !== "countdown" && room.phase !== "playing";
   $("#dash-meter").hidden = room.phase !== "playing" || room.you === null;
+  const battle = room.variant === "battle";
+  $("#controls-hint").textContent = battle ? "WASD / arrows to roll · Space to dash · E or Shift to use your weapon" : "WASD / arrows to roll · Space to dash";
+  renderWeapon();
   if (room.phase === "waiting") {
     if (room.mode === "paid") {
       const left = room.maxPlayers - room.seats.length;
@@ -775,7 +835,7 @@ function renderPhase() {
       const s = Math.ceil((room!.startsAt - Date.now()) / 1000);
       if (s > 0 && s !== lastBeep) sfx.tick();
       lastBeep = s;
-      setStatus(s > 0 ? `<span class="big">${s}</span>${room!.you === null ? "Spectating" : "Get ready! Knock everyone off."}` : "");
+      setStatus(s > 0 ? `<span class="big">${s}</span>${room!.you === null ? "Spectating" : battle ? "Get ready! Grab crates, smash everyone, mind the hole." : "Get ready! Knock everyone off."}` : "");
     };
     tick();
     countdownTimer = setInterval(tick, 200);
@@ -932,7 +992,7 @@ function showResult() {
   const pot = room.entryFee ? BigInt(room.entryFee) * BigInt(room.maxPlayers) : 0n;
   let html = "";
   if (r.winnerSeat === null) {
-    html = `<h2>No winner</h2><p>Nobody played, so everyone gets their entry back.</p>`;
+    html = room.mode === "paid" ? `<h2>No winner</h2><p>Nobody played, so everyone gets their entry back.</p>` : `<h2>It's a draw</h2>`;
     if (room.mode === "paid" && room.you !== null && r.sig) html += `<button class="btn" id="claim">Get my ${eth(room.entryFee!)} back</button>`;
   } else if (youWon) {
     html = `<h2>🏆 You win!</h2>`;
@@ -945,7 +1005,7 @@ function showResult() {
   if (room.mode === "friends" && !isHost) html += `<p class="muted">Waiting for the host to start the next round.</p>`;
   html += `<div class="acts">${isHost ? `<button class="btn" id="rematch">Play again</button>` : ""}<button class="btn ghost" id="again">${room.mode === "practice" ? "Play again" : "Back to lobby"}</button></div>`;
   el.innerHTML = html;
-  $("#again").onclick = () => (room?.mode === "practice" ? joinPractice() : leaveRoom());
+  $("#again").onclick = () => (room?.mode === "practice" ? joinPractice(room.variant === "battle") : leaveRoom());
   $("#rematch")?.addEventListener("click", beginFriends);
   $("#claim")?.addEventListener("click", claim);
 }
@@ -974,7 +1034,7 @@ async function claim() {
 }
 
 function beginFriends() {
-  if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ t: "begin", bots: $<HTMLInputElement>("#bots").checked }));
+  if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ t: "begin", bots: $<HTMLInputElement>("#bots").checked, battle: $<HTMLInputElement>("#battle").checked }));
 }
 
 // --------------------------------------------------------------------- boot
@@ -1000,7 +1060,7 @@ async function boot() {
   });
   view = new ArenaView($<HTMLCanvasElement>("#arena"));
   view.start();
-  readControls = createControls($("#match"), dashNow);
+  readControls = createControls($("#match"), dashNow, useNow);
   discoverWallets(() => {});
   sfx.unlockAudio();
   const mute = $("#mute-btn");
@@ -1046,7 +1106,8 @@ async function boot() {
     renderWallet();
     renderHome();
   };
-  $("#practice-btn").onclick = joinPractice;
+  $("#practice-btn").onclick = () => joinPractice();
+  $("#battle-btn").onclick = () => joinPractice(true);
   $("#friends-btn").onclick = createFriends;
   $("#start-btn").onclick = beginFriends;
   $("#join-form").addEventListener("submit", (e) => {

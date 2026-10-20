@@ -26,6 +26,7 @@ const log = (...a: unknown[]) => console.log(new Date().toISOString(), ...a);
 const rooms = new Map<string, Room>();
 const currentTier = new Map<string, string>(); // tierId -> matchId
 let currentPractice = "";
+let currentBattle = "";
 
 // paid matches in play survive a restart only as "call it off": remember them on disk
 const activeFile = DATA_DIR ? path.join(DATA_DIR, "active-paid.json") : "";
@@ -75,11 +76,12 @@ async function queuePaid(tierId: string, address: Address, stale?: string) {
   };
 }
 
-function practiceRoom() {
-  let room = rooms.get(currentPractice);
+function practiceRoom(battle: boolean) {
+  let room = rooms.get(battle ? currentBattle : currentPractice);
   if (!room || !room.joinable) {
-    room = makeRoom({ mode: "practice", matchId: `practice-${crypto.randomUUID()}`, maxPlayers: 4 });
-    currentPractice = room.cfg.matchId;
+    room = makeRoom({ mode: "practice", variant: battle ? "battle" : "classic", matchId: `practice-${crypto.randomUUID()}`, maxPlayers: 4 });
+    if (battle) currentBattle = room.cfg.matchId;
+    else currentPractice = room.cfg.matchId;
   }
   return room.cfg.matchId;
 }
@@ -92,7 +94,7 @@ function friendsRoom() {
 
 // forget empty rooms after a while
 setInterval(() => {
-  const keep = new Set([...currentTier.values(), currentPractice]);
+  const keep = new Set([...currentTier.values(), currentPractice, currentBattle]);
   for (const [id, r] of rooms) if (r.idle && !keep.has(id)) rooms.delete(id);
 }, 60_000).unref();
 
@@ -230,7 +232,7 @@ const server = http.createServer(async (req, res) => {
       const r = await queuePaid(String(body.tierId), address, body.stale);
       return sendJson(res, r.status, r.body);
     }
-    if (p === "/api/practice" && req.method === "POST") return sendJson(res, 200, { roomId: practiceRoom() });
+    if (p === "/api/practice" && req.method === "POST") return sendJson(res, 200, { roomId: practiceRoom(url.searchParams.get("battle") === "1") });
     if (p === "/api/friends" && req.method === "POST") return sendJson(res, 200, { roomId: friendsRoom() });
     const m = p.match(/^\/api\/match\/([^/]+)$/);
     if (m) {
