@@ -40,7 +40,21 @@
 
       <h3 id="paid-title">Play for ETH</h3>
       <p id="paid-note" class="muted small" hidden></p>
-      <section id="tiers" class="tiers"></section>
+      <section id="bet" class="panel bet">
+        <div class="bet-grid">
+          <div class="bet-field"><span class="label">Mode</span><div class="seg" id="bet-mode"><button type="button" data-v="classic">Classic</button><button type="button" data-v="battle">Battle</button></div></div>
+          <div class="bet-field"><span class="label">Players</span><div class="seg" id="bet-size"><button type="button" data-v="2">1 vs 1</button><button type="button" data-v="4">4 players</button></div></div>
+          <div class="bet-field bet-amounts"><span class="label">Entry (ETH)</span><div class="seg" id="bet-amt"></div></div>
+        </div>
+        <div class="bet-sum">
+          <div><div class="bet-prize" id="bet-prize"></div><div class="muted small" id="bet-detail"></div></div>
+          <button type="button" class="btn big-btn" id="bet-go">Find a match</button>
+        </div>
+      </section>
+      <div id="open-wrap" hidden>
+        <h4 class="open-title">Waiting for players</h4>
+        <section id="open" class="panel open-list"></section>
+      </div>
 
       <h3>Your matches</h3>
       <section id="mine" class="panel"></section>

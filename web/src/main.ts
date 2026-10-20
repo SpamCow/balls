@@ -1,7 +1,7 @@
 import "./style.css";
 import { createPublicClient, http, defineChain, formatEther, parseEther, getAddress, zeroAddress, type Address, type Chain, type EIP1193Provider, type Hex } from "viem";
 import { bumperBallsAbi } from "../../shared/abi";
-import { COLORS, type Tier } from "../../shared/config";
+import { COLORS, makeTier, parseTier, type Tier, type Variant } from "../../shared/config";
 import { SNAP_STRIDE } from "../../shared/physics";
 import { MatchStatus } from "../../shared/eip712";
 import { discoverWallets, walletOptions, ensureChain, clients } from "./wallet";
@@ -18,7 +18,7 @@ type Config = {
   contract: Address;
   walletConnectProjectId: string | null;
   privyAppId: string | null;
-  tiers: Tier[];
+  bets: { presets: string[]; min: string; max: string };
   paid: { state: "checking" | "needs-funds" | "deploying" | "live" | "error"; deployer?: Address; balance?: string; message?: string };
 };
 
@@ -343,21 +343,8 @@ async function renderHome() {
   renderLeaders();
   $("#home").hidden = false;
   $("#match").hidden = true;
-  const tiers = $("#tiers");
-  tiers.innerHTML = "";
-  for (const t of cfg.tiers) {
-    const pot = BigInt(t.entryFeeWei) * BigInt(t.maxPlayers);
-    const prize = (pot * 95n) / 100n;
-    const card = document.createElement("button");
-    card.className = "tier";
-    card.innerHTML = `
-      <div class="tier-top"><span class="tier-name">${esc(t.label)}</span><span class="pill">${t.maxPlayers} players</span></div>
-      <div class="tier-prize">${eth(prize)}</div>
-      <div class="muted">to the winner · entry ${eth(t.entryFeeWei)}</div>`;
-    card.onclick = () => joinPaid(t);
-    card.disabled = cfg.paid?.state !== "live";
-    tiers.append(card);
-  }
+  renderBet();
+  renderOpen();
   const note = $("#paid-note");
   note.hidden = cfg.paid?.state === "live";
   if (cfg.paid?.state === "needs-funds")
@@ -448,6 +435,94 @@ function confirmRealMoney(): Promise<boolean> {
   return new Promise((resolve) => {
     d.addEventListener("close", () => resolve(d.returnValue === "yes"), { once: true });
   });
+}
+
+// ------------------------------------------------------------ paid picker
+
+// what the player last picked, remembered between visits
+const bet = { variant: "classic" as Variant, size: 2, amount: "0.001", custom: false, ...(store<object>("bb.bet") ?? {}) };
+
+/** The tier the picker describes, or a reason it isn't a valid bet. */
+function pickedTier(): Tier | string {
+  let wei: bigint;
+  try {
+    wei = parseEther(bet.amount.trim().replace(",", "."));
+  } catch {
+    return "Type an amount in ETH, like 0.005.";
+  }
+  return parseTier(makeTier(bet.variant, bet.size, wei).id, parseEther(cfg.bets.max));
+}
+
+function renderBet() {
+  const seg = (id: string, value: string) =>
+    $(id).querySelectorAll<HTMLButtonElement>("button").forEach((b) => b.classList.toggle("on", b.dataset.v === value));
+  seg("#bet-mode", bet.variant);
+  seg("#bet-size", String(bet.size));
+  const amt = $("#bet-amt");
+  if (!amt.children.length) {
+    amt.innerHTML =
+      cfg.bets.presets.map((p) => `<button type="button" data-v="${esc(p)}">${esc(p)}</button>`).join("") +
+      `<input id="bet-custom" placeholder="Other" inputmode="decimal" autocomplete="off" aria-label="Other amount in ETH" />`;
+    amt.querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.onclick = () => setBet({ amount: b.dataset.v!, custom: false })));
+    const input = $<HTMLInputElement>("#bet-custom");
+    input.oninput = () => setBet({ amount: input.value, custom: true });
+    input.onfocus = () => input.value && setBet({ amount: input.value, custom: true });
+    if (bet.custom) input.value = bet.amount;
+  }
+  seg("#bet-amt", bet.custom ? "" : bet.amount);
+  $("#bet-custom").classList.toggle("on", bet.custom);
+  const t = pickedTier();
+  const prize = $("#bet-prize");
+  const live = cfg.paid?.state === "live";
+  if (typeof t === "string") {
+    prize.textContent = t;
+    prize.classList.add("bad");
+    $("#bet-detail").textContent = `Any amount from ${cfg.bets.min} to ${cfg.bets.max} ETH.`;
+  } else {
+    const pot = BigInt(t.entryFeeWei) * BigInt(t.maxPlayers);
+    prize.classList.remove("bad");
+    prize.textContent = `Win ${eth((pot * 95n) / 100n)}`;
+    $("#bet-detail").textContent = `${t.maxPlayers} players each pay ${eth(t.entryFeeWei)}. The winner takes the pot minus the 5% house cut.`;
+  }
+  const go = $<HTMLButtonElement>("#bet-go");
+  go.disabled = !live || typeof t === "string";
+  go.textContent = typeof t === "string" ? "Find a match" : `Play for ${eth(t.entryFeeWei)}`;
+}
+
+function setBet(p: Partial<typeof bet>) {
+  Object.assign(bet, p);
+  store("bb.bet", bet);
+  renderBet();
+}
+
+type OpenMatch = { matchId: string; tierId: string; players: number; maxPlayers: number; entryFee: string; variant: Variant; names: string[] };
+let openTimer: ReturnType<typeof setInterval> | null = null;
+async function renderOpen() {
+  if (openTimer) clearInterval(openTimer);
+  openTimer = setInterval(() => ($("#home").hidden ? clearInterval(openTimer!) : renderOpen()), 10_000);
+  if (cfg.paid?.state !== "live") return void ($("#open-wrap").hidden = true);
+  let list: OpenMatch[] = [];
+  try {
+    list = await (await fetch("/api/open")).json();
+  } catch {}
+  $("#open-wrap").hidden = list.length === 0;
+  $("#open").innerHTML = list
+    .map((m, i) => {
+      const who = m.names.filter(Boolean).slice(0, 3).map(esc).join(", ");
+      return `<div class="row"><span><b>${eth(m.entryFee)}</b> · ${m.variant === "battle" ? "Battle" : "Classic"} · ${m.maxPlayers === 2 ? "1 vs 1" : "4 players"} · ${m.players}/${m.maxPlayers} in${who ? ` <span class="muted">(${who})</span>` : ""}</span><button class="btn small" data-i="${i}">Join</button></div>`;
+    })
+    .join("");
+  $("#open").querySelectorAll<HTMLButtonElement>("button[data-i]").forEach((b) => {
+    const m = list[Number(b.dataset.i)];
+    const t = tierOf(m.tierId);
+    b.onclick = () => t && joinPaid(t);
+  });
+}
+
+/** The tier of a match the server already made (the server checks limits when you join). */
+function tierOf(id?: string): Tier | null {
+  const t = id ? parseTier(id, 10n ** 30n) : null;
+  return t && typeof t !== "string" ? t : null;
 }
 
 // -------------------------------------------------------------------- match
@@ -782,7 +857,7 @@ function renderSeats() {
   el.innerHTML = html;
   $("#pot").textContent =
     room.mode === "paid" && room.entryFee
-      ? `Pot ${eth(BigInt(room.entryFee) * BigInt(room.maxPlayers))}`
+      ? `${room.variant === "battle" ? "Battle · " : ""}Pot ${eth(BigInt(room.entryFee) * BigInt(room.maxPlayers))}`
       : room.mode === "friends"
         ? `Room ${room.code?.toUpperCase()} · ${room.variant === "battle" ? "battle · " : ""}free`
         : room.variant === "battle"
@@ -809,7 +884,7 @@ function renderPhase() {
     if (room.mode === "paid") {
       const left = room.maxPlayers - room.seats.length;
       const mins = Math.max(0, Math.round(((room.joinDeadline ?? 0) - Date.now() / 1000) / 60));
-      const tier = cfg.tiers.find((t) => t.id === room!.tierId);
+      const tier = tierOf(room.tierId);
       setStatus(
         room.you === null
           ? `Waiting for ${left} more player${left === 1 ? "" : "s"}…${tier ? ` <button class="btn small" id="link-join">Join for ${eth(tier.entryFeeWei)}</button>` : ""}`
@@ -857,7 +932,7 @@ function renderPhase() {
 async function paidLinkHelp(id: string) {
   const r = await fetch(`/api/match/${id}`).catch(() => null);
   const m = r?.ok ? ((await r.json()) as RoomState & { joinable: boolean }) : null;
-  const tier = cfg.tiers.find((t) => t.id === m?.tierId);
+  const tier = tierOf(m?.tierId);
   if (!m || !tier) return setStatus("That match isn't available any more.");
   if (!m.joinable) return setStatus(`That ${esc(tier.label)} is already full or finished. <button class="btn small" id="link-home">Find another match</button>`), linkButtons(tier);
   const signIn = cfg.privyAppId ? "Sign in" : "Connect a wallet";
@@ -1107,6 +1182,12 @@ async function boot() {
     renderHome();
   };
   $("#practice-btn").onclick = () => joinPractice();
+  $("#bet-mode").querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.onclick = () => setBet({ variant: b.dataset.v as Variant })));
+  $("#bet-size").querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.onclick = () => setBet({ size: Number(b.dataset.v) })));
+  $("#bet-go").onclick = () => {
+    const t = pickedTier();
+    if (typeof t !== "string") joinPaid(t);
+  };
   $("#battle-btn").onclick = () => joinPractice(true);
   $("#friends-btn").onclick = createFriends;
   $("#start-btn").onclick = beginFriends;

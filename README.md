@@ -19,7 +19,7 @@ Everyone pays the same entry fee into an escrow contract; the last ball on the s
 
 - **Play with friends (free):** create a room, send the 5-character code or invite link, and the host presses Start. Empty seats can be filled with bots.
 - **Quick game vs bots (free):** drops you into a practice match; anyone who joins in the first few seconds plays too.
-- **Battle mode (free):** "Battle vs bots", or tick "Battle mode" in a friends room. Walls instead of edges, a hole in the middle, HP, and weapon crates (E/Shift to use). Rules and tuning: `shared/battle.ts`.
+- **Battle mode (free or paid):** "Battle vs bots", tick "Battle mode" in a friends room, or pick Battle for a paid match. Walls instead of edges, a hole in the middle, HP, and weapon crates (E/Shift to use). Rules and tuning: `shared/battle.ts`.
 - **ETH matches:** 2- or 4-player matches with an entry fee held in the escrow contract (testnet by default, real ETH on mainnet when enabled).
 
 The platform starts shrinking 3 seconds in and keeps closing until 70 seconds, so every match ends. A ball drops once most of it hangs past the rim.
@@ -27,7 +27,7 @@ The platform starts shrinking 3 seconds in and keeps closing until 70 seconds, s
 ## How a paid match works
 
 1. Player signs a free sign-in message; the server returns a session token bound to their address.
-2. Player picks a tier; the lobby returns a **join ticket** signed by the server for the current open match (matchId, player, fee, size, deadlines).
+2. Player picks a mode, size and entry amount; the lobby returns a **join ticket** signed by the server for the current open match (matchId, player, fee, size, deadlines).
 3. Player calls `join(...)` with the entry fee. The first ticket fixes the match's fee, size, fee bps and signer; later tickets must match.
 4. When all seats are paid on-chain (`MatchFull`), the room counts down and runs the physics at 60 Hz. Clients only send steering input.
 5. The room signs `MatchResult(matchId, winner)` (EIP-712, bound to chain + contract). The winner calls `claim`, which settles and withdraws in one transaction.
@@ -73,6 +73,7 @@ Free play works as soon as it's up. To open paid matches, send about 0.005 Robin
 | `RPC_URL` | public RPC for the chain | |
 | `CONTRACT_ADDRESS` | deployer's first contract | set only if you deployed the escrow yourself |
 | `FEE_RECIPIENT` | deployer | your wallet for the 5% fee |
+| `MAX_BET_ETH` | `1` | Biggest paid entry a player can pick (smallest is 0.0001) |
 | `FEE_SPLIT` | none | `0xA:69,0xB:31` splits the fee between two wallets; the contract sends each share straight to its wallet when a match settles |
 | `PRIVY_APP_ID` | none | email/Google sign-in through Privy, with a built-in wallet per player (deposit, play, cash out). Replaces Connect wallet |
 | `WALLETCONNECT_PROJECT_ID` | none | without Privy only: QR connect for Robinhood Wallet on phones |

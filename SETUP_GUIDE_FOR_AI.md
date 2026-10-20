@@ -57,8 +57,8 @@ If the owner received the repository itself (a GitHub transfer of `SpamCow/balls
 
 - **Play with friends** (free): a 5-letter room code or invite link. The host presses Start, and bots can fill empty seats.
 - **Quick game vs bots** (free).
-- **Battle mode** (free: **Battle vs bots**, or the host ticks "Battle mode" in a friends room). A walled arena with a hole in the middle; everyone has 100 HP. Crates give a random self-aiming weapon (hammer, laser rifle, magnet, spike shell, homing rocket, mines, ice slick), used with E/Shift or the phone weapon button. The hole grows from 75 s; at 120 s the most HP wins. All tuning numbers are in the `BATTLE` constant in `shared/battle.ts`.
-- **Paid matches** (optional): 0.001, 0.01 or 0.1 ETH entry, as a 2-player duel or a 4-player brawl. Winner takes the pot minus a 5% house cut.
+- **Battle mode** (free with **Battle vs bots** or the "Battle mode" box in a friends room, and also as a paid match). A walled arena with a hole in the middle; everyone has 100 HP. Crates give a random self-aiming weapon (hammer, laser rifle, magnet, spike shell, homing rocket, mines, ice slick), used with E/Shift or the phone weapon button. The hole grows from 75 s; at 120 s the most HP wins. All tuning numbers are in the `BATTLE` constant in `shared/battle.ts`.
+- **Paid matches** (optional): the player picks classic or battle, 1 vs 1 or 4 players, and any entry from 0.0001 ETH up to `MAX_BET_ETH` (default 1). Shortcut buttons offer 0.001, 0.01 and 0.1. Players who pick the same settings land in the same match, and the lobby lists matches still waiting for players. Winner takes the pot minus a 5% house cut.
 
 **Players:**
 
@@ -83,7 +83,7 @@ If the owner received the repository itself (a GitHub transfer of `SpamCow/balls
 | `server/profiles.ts` | Usernames and stats, stored in `DATA_DIR/profiles.json` |
 | `server/auth.ts` | Sign-in tokens |
 | `server/env.ts` | Reads settings and derives keys |
-| `shared/physics.ts` | The game simulation. `shared/config.ts` holds bet tiers, chains and colors |
+| `shared/physics.ts` | The game simulation. `shared/config.ts` holds bet limits and presets, chains and colors |
 | `contracts/BumperBalls.sol` | Escrow: signed join tickets, signed results, timeouts, refunds, withdrawals |
 | `web/` | The website: Vite + three.js. `web/src/main.ts` is the UI, `render.ts` the 3D view, `privy.ts` sign-in, `sound.ts` the sounds |
 | `hosting/` | systemd service, Caddyfile, cPanel start file, example settings |
@@ -323,6 +323,7 @@ The contract sends the house cut straight to the fee wallets in the same transac
 | `ALLOW_MAINNET` | not set | `yes` is required for mainnet |
 | `FEE_RECIPIENT` | the deployer | Required on mainnet unless `FEE_SPLIT` is set |
 | `FEE_SPLIT` | not set | `0xA:69,0xB:31` |
+| `MAX_BET_ETH` | `1` | Biggest entry a player can pick |
 | `RPC_URL` | public RPC | |
 | `PRIVY_APP_ID` | not set | Turns on email/Google sign-in |
 | `WALLETCONNECT_PROJECT_ID` | not set | Only used without Privy |

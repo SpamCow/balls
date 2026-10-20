@@ -12,6 +12,10 @@ const cfg = await (await fetch(`${BASE}/api/config`)).json();
 const chain = { id: cfg.chainId, name: "local", nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: [cfg.rpcUrl] } } } as const;
 const pub = createPublicClient({ chain, transport: http(cfg.rpcUrl) });
 const host = new URL(BASE).host;
+// TIER=battle-2-2000000000000000 plays a paid battle duel for 0.002 ETH instead
+const TIER = process.env.TIER ?? "duel-s";
+const ENTRY = TIER === "duel-s" ? 1_000_000_000_000_000n : BigInt(TIER.split("-")[2]);
+const PRIZE = (ENTRY * 2n * 95n) / 100n;
 
 const keys: Hex[] = [
   "0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6",
@@ -47,7 +51,7 @@ console.log("✓ both players signed in");
 
 let matchId: Hex | null = null;
 for (const p of players) {
-  const r = await fetch(`${BASE}/api/queue`, { method: "POST", headers: { authorization: `Bearer ${p.token}` }, body: JSON.stringify({ tierId: "duel-s" }) });
+  const r = await fetch(`${BASE}/api/queue`, { method: "POST", headers: { authorization: `Bearer ${p.token}` }, body: JSON.stringify({ tierId: TIER }) });
   const t = await r.json();
   if (!r.ok) throw new Error(`queue: ${t.error}`);
   if (matchId && t.matchId !== matchId) throw new Error("players were put in different matches");
@@ -108,10 +112,12 @@ const results = await Promise.all(
 );
 const { over } = results[0];
 console.log(`✓ match played: ${results[0].snaps} snapshots, winner seat ${over.winnerSeat} (${over.winner})`);
-if (over.winnerSeat !== results[0].you) throw new Error("expected the active player to win");
+// in battle mode the naive chaser can roll into the hole, so either player may win there
+if (over.winnerSeat === null || (!TIER.startsWith("battle") && over.winnerSeat !== results[0].you)) throw new Error("expected the active player to win");
+const w = over.winnerSeat === results[0].you ? 0 : 1;
 
 // a loser can't claim with the winner's signature
-const loser = players[1];
+const loser = players[1 - w];
 try {
   await pub.simulateContract({ account: loser.acct, address: cfg.contract, abi: bumperBallsAbi, functionName: "claim", args: [matchId!, loser.acct.address, over.sig] });
   throw new Error("loser claim should fail");
@@ -121,19 +127,19 @@ try {
 }
 console.log("✓ loser can't reuse the winner's signature");
 
-const winner = players[0];
+const winner = players[w];
 const before = await pub.getBalance({ address: winner.acct.address });
 const hash = await winner.wallet.writeContract({ address: cfg.contract, abi: bumperBallsAbi, functionName: "claim", args: [matchId!, over.winner, over.sig] });
 const rc = await pub.waitForTransactionReceipt({ hash });
 const gained = (await pub.getBalance({ address: winner.acct.address })) - before + rc.gasUsed * rc.effectiveGasPrice;
 console.log(`✓ winner claimed ${Number(gained) / 1e18} ETH`);
-if (gained !== 1_900_000_000_000_000n) throw new Error(`unexpected payout ${gained}`);
+if (gained !== PRIZE) throw new Error(`unexpected payout ${gained}`);
 
 // the contract sends the house cut straight to the fee wallets when the match settles
 {
   const read = (functionName: "feeRecipient" | "feeRecipient2" | "feeShareBps") => pub.readContract({ address: cfg.contract, abi: bumperBallsAbi, functionName });
   const [a, b, share] = (await Promise.all([read("feeRecipient"), read("feeRecipient2"), read("feeShareBps")])) as [Address, Address, number];
-  const fee = (1_900_000_000_000_000n * 5n) / 95n; // 5% of a 0.002 pot
+  const fee = (PRIZE * 5n) / 95n; // 5% of the pot
   const wantA = (fee * BigInt(share)) / 10_000n;
   const gotA = await pub.getBalance({ address: a });
   const gotB = a === b ? 0n : await pub.getBalance({ address: b });

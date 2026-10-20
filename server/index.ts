@@ -4,8 +4,8 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { WebSocketServer } from "ws";
-import { toHex, getAddress, isAddress, formatEther, type Address, type Hex } from "viem";
-import { TIERS, CHAINS, JOIN_WINDOW_SEC, TICKET_TTL_SEC } from "../shared/config";
+import { toHex, getAddress, isAddress, formatEther, parseEther, type Address, type Hex } from "viem";
+import { CHAINS, JOIN_WINDOW_SEC, TICKET_TTL_SEC, PRESET_BETS, MIN_BET_WEI, DEFAULT_MAX_BET_ETH, parseTier } from "../shared/config";
 import { login, verifyToken } from "./auth";
 import { signerAddress, rpcUrl, signTicket, sweepDeployer, deployerClients } from "./chain";
 import { loadEnv } from "./env";
@@ -20,6 +20,16 @@ const STATIC_DIR = path.resolve(process.env.STATIC_DIR || "web/dist");
 const DATA_DIR = process.env.DATA_DIR || "";
 const MAX_CONNS_PER_IP = 8;
 const log = (...a: unknown[]) => console.log(new Date().toISOString(), ...a);
+// MAX_BET_ETH: the biggest entry a player may pick (default 1 ETH)
+const MAX_BET_WEI = (() => {
+  try {
+    return parseEther(process.env.MAX_BET_ETH?.trim() || DEFAULT_MAX_BET_ETH);
+  } catch {
+    log("MAX_BET_ETH isn't a number, using", DEFAULT_MAX_BET_ETH);
+    return parseEther(DEFAULT_MAX_BET_ETH);
+  }
+})();
+const MAX_WAITING_PAID = 200; // open paid matches waiting for players at once
 
 // ----------------------------------------------------------------- rooms
 
@@ -52,13 +62,22 @@ const CODE_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789";
 const newCode = () => Array.from(crypto.getRandomValues(new Uint8Array(5)), (b) => CODE_ALPHABET[b % CODE_ALPHABET.length]).join("");
 
 async function queuePaid(tierId: string, address: Address, stale?: string) {
-  const tier = TIERS.find((t) => t.id === tierId);
-  if (!tier) return { status: 400, body: { error: "unknown tier" } };
+  const tier = parseTier(tierId, MAX_BET_WEI);
+  if (typeof tier === "string") return { status: 400, body: { error: tier } };
   if (contract.state !== "live") return { status: 503, body: { error: "Paid matches aren't open yet." } };
   const now = Math.floor(Date.now() / 1000);
   let room = rooms.get(currentTier.get(tier.id) ?? "");
   if (!room || !room.joinable || (room.cfg.joinDeadline ?? 0) - now < TICKET_TTL_SEC + 30 || stale === room.cfg.matchId) {
-    room = makeRoom({ mode: "paid", matchId: randomId(), tierId: tier.id, entryFee: tier.entryFeeWei, maxPlayers: tier.maxPlayers, joinDeadline: now + JOIN_WINDOW_SEC });
+    if (waitingPaid().length >= MAX_WAITING_PAID) return { status: 503, body: { error: "Too many matches are waiting for players. Join one of the open matches instead." } };
+    room = makeRoom({
+      mode: "paid",
+      variant: tier.variant,
+      matchId: randomId(),
+      tierId: tier.id,
+      entryFee: tier.entryFeeWei,
+      maxPlayers: tier.maxPlayers,
+      joinDeadline: now + JOIN_WINDOW_SEC,
+    });
     currentTier.set(tier.id, room.cfg.matchId);
   }
   const t = {
@@ -74,6 +93,23 @@ async function queuePaid(tierId: string, address: Address, stale?: string) {
     status: 200,
     body: { matchId: t.matchId, entryFee: tier.entryFeeWei, maxPlayers: tier.maxPlayers, joinDeadline: room.cfg.joinDeadline, ticketExpiry: Number(t.ticketExpiry), sig },
   };
+}
+
+/** Paid matches still taking players. */
+function waitingPaid() {
+  return [...rooms.values()].filter((r) => r.cfg.mode === "paid" && r.joinable);
+}
+
+/** Open paid matches someone has already paid into, for the lobby's list. */
+function openMatches() {
+  const now = Math.floor(Date.now() / 1000);
+  return waitingPaid()
+    .map((r) => ({ r, s: r.publicState() }))
+    .filter(({ r, s }) => s.seats.length > 0 && (r.cfg.joinDeadline ?? 0) - now > TICKET_TTL_SEC + 30)
+    // closest to full first, then biggest bet
+    .sort((a, b) => b.s.seats.length / b.s.maxPlayers - a.s.seats.length / a.s.maxPlayers || (BigInt(b.s.entryFee ?? 0) > BigInt(a.s.entryFee ?? 0) ? 1 : -1))
+    .slice(0, 20)
+    .map(({ s }) => ({ matchId: s.matchId, tierId: s.tierId, players: s.seats.length, maxPlayers: s.maxPlayers, entryFee: s.entryFee, variant: s.variant, names: s.names }));
 }
 
 function practiceRoom(battle: boolean) {
@@ -207,7 +243,7 @@ const server = http.createServer(async (req, res) => {
         signer: signerAddress(env),
         walletConnectProjectId: env.WALLETCONNECT_PROJECT_ID || null,
         privyAppId: process.env.PRIVY_APP_ID || null,
-        tiers: TIERS,
+        bets: { presets: PRESET_BETS, min: formatEther(MIN_BET_WEI), max: formatEther(MAX_BET_WEI) },
       });
     }
     if (p === "/api/login" && req.method === "POST") {
@@ -232,6 +268,7 @@ const server = http.createServer(async (req, res) => {
       const r = await queuePaid(String(body.tierId), address, body.stale);
       return sendJson(res, r.status, r.body);
     }
+    if (p === "/api/open") return sendJson(res, 200, openMatches());
     if (p === "/api/practice" && req.method === "POST") return sendJson(res, 200, { roomId: practiceRoom(url.searchParams.get("battle") === "1") });
     if (p === "/api/friends" && req.method === "POST") return sendJson(res, 200, { roomId: friendsRoom() });
     const m = p.match(/^\/api\/match\/([^/]+)$/);

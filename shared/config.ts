@@ -1,18 +1,50 @@
-// Match tiers offered in the lobby. The contract doesn't know about tiers: the
-// server only signs tickets for these, and the contract binds each match to the
-// fee and size in its first ticket.
-export type Tier = { id: string; label: string; entryFeeWei: string; maxPlayers: number };
+// Paid match settings. The contract doesn't know about tiers: the server only
+// signs tickets for valid ones, and the contract binds each match to the fee and
+// size in its first ticket. A tier is any bet between the limits, as a 2-player
+// duel or 4-player brawl, in classic or battle mode. Players with the same
+// settings are put in the same match.
+import { formatEther } from "viem";
 
-const FEES = [
-  ["s", "0.001", "1000000000000000"],
-  ["m", "0.01", "10000000000000000"],
-  ["l", "0.1", "100000000000000000"],
-] as const;
+export type Variant = "classic" | "battle";
+export type Tier = { id: string; label: string; entryFeeWei: string; maxPlayers: number; variant: Variant };
 
-export const TIERS: Tier[] = FEES.flatMap(([id, eth, wei]) => [
-  { id: `duel-${id}`, label: `${eth} ETH duel`, entryFeeWei: wei, maxPlayers: 2 },
-  { id: `brawl-${id}`, label: `${eth} ETH brawl`, entryFeeWei: wei, maxPlayers: 4 },
-]);
+export const PRESET_BETS = ["0.001", "0.01", "0.1"];
+export const MIN_BET_WEI = 10n ** 14n; // 0.0001 ETH
+export const BET_STEP_WEI = 10n ** 12n; // bets are whole multiples of 0.000001 ETH
+export const DEFAULT_MAX_BET_ETH = "1";
+
+export function makeTier(variant: Variant, maxPlayers: number, entryFeeWei: bigint): Tier {
+  const size = maxPlayers === 2 ? "duel" : "brawl";
+  return {
+    id: `${variant}-${maxPlayers}-${entryFeeWei}`,
+    label: `${formatEther(entryFeeWei)} ETH ${variant === "battle" ? "battle " : ""}${size}`,
+    entryFeeWei: entryFeeWei.toString(),
+    maxPlayers,
+    variant,
+  };
+}
+
+// the original fixed tiers, so old links and scripts keep working
+const LEGACY: Record<string, [number, bigint]> = {
+  "duel-s": [2, 10n ** 15n],
+  "brawl-s": [4, 10n ** 15n],
+  "duel-m": [2, 10n ** 16n],
+  "brawl-m": [4, 10n ** 16n],
+  "duel-l": [2, 10n ** 17n],
+  "brawl-l": [4, 10n ** 17n],
+};
+
+/** Reads "classic-2-1000000000000000" (variant-players-wei). Returns a reason string if it isn't allowed. */
+export function parseTier(id: string, maxBetWei: bigint): Tier | string {
+  if (LEGACY[id]) return makeTier("classic", ...LEGACY[id]);
+  const m = /^(classic|battle)-(2|4)-([1-9][0-9]{0,30})$/.exec(id);
+  if (!m) return "Pick classic or battle, a duel or a brawl, and a bet.";
+  const wei = BigInt(m[3]);
+  if (wei < MIN_BET_WEI) return `The smallest bet is ${formatEther(MIN_BET_WEI)} ETH.`;
+  if (wei > maxBetWei) return `The biggest bet is ${formatEther(maxBetWei)} ETH.`;
+  if (wei % BET_STEP_WEI !== 0n) return "Bets can have at most 6 decimal places.";
+  return makeTier(m[1] as Variant, Number(m[2]), wei);
+}
 
 export const JOIN_WINDOW_SEC = 10 * 60; // seats must fill within this
 export const TICKET_TTL_SEC = 3 * 60;

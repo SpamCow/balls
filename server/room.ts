@@ -14,11 +14,12 @@ import type { Env } from "./env";
 
 export type Phase = "waiting" | "countdown" | "playing" | "over" | "expired";
 export type Mode = "paid" | "practice" | "friends";
-export type Variant = "classic" | "battle";
+export type { Variant } from "../shared/config";
+import type { Variant } from "../shared/config";
 
 export type Config = {
   mode: Mode;
-  variant?: Variant; // battle mode is free only (practice and friends rooms)
+  variant?: Variant;
   matchId: string;
   code?: string;
   tierId?: string;
@@ -64,7 +65,7 @@ export class Room {
 
   constructor(readonly cfg: Config, private env: Env, private persist: Persist) {
     if (cfg.mode !== "paid") this.seats = Array(cfg.maxPlayers).fill(null);
-    this.variant = cfg.mode === "paid" ? "classic" : cfg.variant ?? "classic";
+    this.variant = cfg.variant ?? "classic";
   }
 
   /** A paid match whose game state was lost in a restart: call it off so everyone is refunded at once. */
