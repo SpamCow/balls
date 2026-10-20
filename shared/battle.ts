@@ -3,7 +3,7 @@
 // every weapon aims itself, so the only control is one "use" button.
 import { RULES, TICK_HZ, DT, createSim, drive, collide, dashing, finish, type Sim, type Ball, type Input } from "./physics";
 
-export const WEAPONS = ["hammer", "laser", "magnet", "spikes", "rocket", "mine", "ice"] as const;
+export const WEAPONS = ["hammer", "laser", "magnet", "spikes", "rocket", "mine"] as const;
 export type Weapon = (typeof WEAPONS)[number];
 
 export const BATTLE = {
@@ -32,7 +32,6 @@ export const BATTLE = {
   spikes: { sec: 4, mult: 3, knock: 4 },
   rocket: { speed: 6, turn: 2.5, life: 6, blast: 3, dmg: 35, knock: 12, r: 0.35 },
   mine: { charges: 2, arm: 0.6, life: 20, r: 1.3, dmg: 25, kick: 14, max: 8 },
-  ice: { sec: 5, every: 0.12, r: 1.3, life: 6, drag: 0.05, accel: 0.25, max: 160 },
 };
 
 export type Fighter = {
@@ -46,7 +45,6 @@ export type Fighter = {
   dir: number; // hammer spin direction, ±1
   heading: number; // last movement direction, for the hammer's spin
   hitCd: number[]; // per target: tick the hammer may hit them again
-  nextIce: number;
 };
 
 type P = { id: number; o: number; x: number; y: number };
@@ -57,7 +55,6 @@ export type Battle = {
   lasers: (P & { vx: number; vy: number; n: number })[]; // n = wall hits so far
   rockets: (P & { vx: number; vy: number; die: number })[];
   mines: (P & { arm: number; die: number })[];
-  ice: (P & { die: number })[];
   nextCrate: number;
   nextId: number;
 };
@@ -82,13 +79,12 @@ export function createBattleSim(players: number): Sim {
   }
   sim.arena = BATTLE.arena;
   sim.battle = {
-    f: sim.balls.map(() => ({ hp: BATTLE.hp, weapon: null, ammo: 0, until: 0, readyAt: 0, angle: 0, spin: 0, dir: 1, heading: 0, hitCd: Array(players).fill(0), nextIce: 0 })),
+    f: sim.balls.map(() => ({ hp: BATTLE.hp, weapon: null, ammo: 0, until: 0, readyAt: 0, angle: 0, spin: 0, dir: 1, heading: 0, hitCd: Array(players).fill(0) })),
     hole: BATTLE.hole,
     crates: [],
     lasers: [],
     rockets: [],
     mines: [],
-    ice: [],
     nextCrate: sec(BATTLE.crateFirst),
     nextId: 1,
   };
@@ -132,10 +128,10 @@ function aimAt(sim: Sim, b: Ball) {
   return { x: dx / len, y: dy / len };
 }
 
-const AMMO: Record<Weapon, number> = { hammer: 0, laser: BATTLE.laser.shots, magnet: 0, spikes: 0, rocket: 1, mine: BATTLE.mine.charges, ice: 0 };
-const TIMED: Partial<Record<Weapon, number>> = { hammer: BATTLE.hammer.sec, magnet: BATTLE.magnet.sec, spikes: BATTLE.spikes.sec, ice: BATTLE.ice.sec };
+const AMMO: Record<Weapon, number> = { hammer: 0, laser: BATTLE.laser.shots, magnet: 0, spikes: 0, rocket: 1, mine: BATTLE.mine.charges };
+const TIMED: Partial<Record<Weapon, number>> = { hammer: BATTLE.hammer.sec, magnet: BATTLE.magnet.sec, spikes: BATTLE.spikes.sec };
 
-/** Is this ball's timed weapon (hammer, magnet, spikes, ice) running? */
+/** Is this ball's timed weapon (hammer, magnet, spikes) running? */
 export function activeWeapon(sim: Sim, seat: number): Weapon | null {
   const f = sim.battle?.f[seat];
   return f && f.weapon && f.until > sim.tick ? f.weapon : null;
@@ -173,7 +169,7 @@ function useWeapon(sim: Sim, b: Ball, f: Fighter) {
   if (!TIMED[w] && --f.ammo <= 0) f.weapon = null;
 }
 
-/** Timed weapons while they run: the hammer swings, the magnet pulls, ice gets laid down. */
+/** Timed weapons while they run: the hammer swings, the magnet pulls. */
 function runWeapon(sim: Sim, b: Ball, f: Fighter) {
   const B = sim.battle!;
   const w = f.weapon;
@@ -228,10 +224,6 @@ function runWeapon(sim: Sim, b: Ball, f: Fighter) {
       o.vx += ((b.x - o.x) / d) * BATTLE.magnet.accel * DT;
       o.vy += ((b.y - o.y) / d) * BATTLE.magnet.accel * DT;
     }
-  } else if (w === "ice" && sim.tick >= f.nextIce) {
-    f.nextIce = sim.tick + sec(BATTLE.ice.every);
-    B.ice.push({ id: B.nextId++, o: b.seat, x: b.x, y: b.y, die: sim.tick + sec(BATTLE.ice.life) });
-    if (B.ice.length > BATTLE.ice.max) B.ice.shift();
   }
 }
 
@@ -315,7 +307,6 @@ function projectiles(sim: Sim) {
     return false;
   });
 
-  B.ice = B.ice.filter((p) => sim.tick < p.die);
 }
 
 function crates(sim: Sim, alive: Ball[]) {
@@ -354,9 +345,7 @@ export function stepBattle(sim: Sim) {
 
   for (const b of alive) {
     const f = B.f[b.seat];
-    // other players' ice: almost no grip
-    const onIce = B.ice.some((p) => p.o !== b.seat && dist(p, b) < BATTLE.ice.r);
-    drive(sim, b, onIce ? BATTLE.ice.accel : 1, onIce ? BATTLE.ice.drag : RULES.drag);
+    drive(sim, b);
     if (b.input.use) useWeapon(sim, b, f);
     b.input.use = false;
   }
@@ -433,10 +422,9 @@ export function battleSnapshot(sim: Sim) {
     ang: B.f.map((f) => Math.round(f.angle * 100) / 100),
     hole: Math.round(B.hole * 100) / 100,
     c: B.crates.flatMap((c) => [c.id, ...xy(c)]),
-    l: B.lasers.flatMap((l) => [l.id, ...xy(l)]),
+    l: B.lasers.flatMap((l) => [l.id, ...xy(l), l.o]), // o: who fired it, for its colour
     r: B.rockets.flatMap((m) => [m.id, ...xy(m), Math.round(Math.atan2(m.vy, m.vx) * 100) / 100]),
     m: B.mines.flatMap((m) => [m.id, ...xy(m), sim.tick >= m.arm ? 1 : 0]),
-    i: B.ice.flatMap((p) => [p.id, ...xy(p)]),
   };
 }
 export type BattleSnap = ReturnType<typeof battleSnapshot>;
@@ -462,7 +450,6 @@ export function battleBotInput(sim: Sim, seat: number, level = 0.8): Input {
     const len = Math.hypot(x, y) || 1;
     [x, y] = [-y / len + (x / len) * 0.3, x / len + (y / len) * 0.3];
   }
-  if (running === "ice") [x, y] = [-y, x]; // lay a ring of ice
   // stay clear of the hole, looking a little ahead
   const ahead = { x: me.x + me.vx * 0.4, y: me.y + me.vy * 0.4 };
   const r = Math.hypot(ahead.x, ahead.y);
@@ -481,7 +468,6 @@ export function battleBotInput(sim: Sim, seat: number, level = 0.8): Input {
     if (w === "laser" || w === "rocket") use = p < 0.04;
     else if (w === "hammer" || w === "spikes" || w === "magnet") use = foeD < (w === "magnet" ? 5 : 6) && p < 0.08;
     else if (w === "mine") use = foeD < 7 && p < 0.03;
-    else if (w === "ice") use = p < 0.02;
   }
   return { x: (x / len) * level, y: (y / len) * level, dash: foeD < 4 && Math.random() < 0.03, use };
 }

@@ -30,8 +30,8 @@ type Fx = { mesh: THREE.Mesh; life: number; max: number; grow: number; fade: num
 
 type Snap = { at: number; tick: number; arena: number; balls: { x: number; y: number; vx: number; vy: number; alive: boolean; dashIn: number }[]; b?: BattleSnap };
 
-export const WEAPON_ICON = ["🔨", "⚡", "🧲", "🦔", "🚀", "💣", "🧊"];
-export const WEAPON_NAME = ["Hammer", "Laser rifle", "Magnet", "Spike shell", "Homing rocket", "Mines", "Ice slick"];
+export const WEAPON_ICON = ["🔨", "⚡", "🧲", "🦔", "🚀", "💣"];
+export const WEAPON_NAME = ["Hammer", "Laser rifle", "Magnet", "Spike shell", "Homing rocket", "Mines"];
 
 const iconTextures = new Map<string, THREE.Texture>();
 function iconTexture(emoji: string) {
@@ -51,7 +51,7 @@ function iconTexture(emoji: string) {
   return t;
 }
 
-/** Keeps one mesh per live object id (crates, shots, mines, ice), adding and removing as they come and go. */
+/** Keeps one mesh per live object id (crates, shots, mines), adding and removing as they come and go. */
 class Pool {
   meshes = new Map<number, THREE.Object3D>();
   constructor(private parent: THREE.Object3D, private make: () => THREE.Object3D) {}
@@ -120,7 +120,7 @@ export class ArenaView {
   private lasers!: Pool;
   private rockets!: Pool;
   private mines!: Pool;
-  private ice!: Pool;
+  private laserMats: { core: THREE.MeshBasicMaterial; glow: THREE.MeshBasicMaterial }[] = [];
   private hole!: THREE.Mesh;
   private holeRim!: THREE.Mesh;
 
@@ -226,11 +226,14 @@ export class ArenaView {
       return grp;
     });
     const laserGeo = new THREE.SphereGeometry(BATTLE.laser.r, 12, 8);
-    const laserMat = new THREE.MeshBasicMaterial({ color: "#ff2e63" });
-    const glowMat = new THREE.MeshBasicMaterial({ color: "#ff2e63", transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false });
+    // each player's shots are their ball colour
+    this.laserMats = COLORS.map((c) => ({
+      core: new THREE.MeshBasicMaterial({ color: c }),
+      glow: new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false }),
+    }));
     this.lasers = new Pool(g, () => {
-      const m = new THREE.Mesh(laserGeo, laserMat);
-      const glow = new THREE.Mesh(laserGeo, glowMat);
+      const m = new THREE.Mesh(laserGeo, this.laserMats[0].core);
+      const glow = new THREE.Mesh(laserGeo, this.laserMats[0].glow);
       glow.scale.setScalar(2.2);
       m.add(glow);
       return m;
@@ -257,13 +260,6 @@ export class ArenaView {
       m.add(light);
       return m;
     });
-    const iceGeo = new THREE.CircleGeometry(BATTLE.ice.r, 24);
-    const iceMat = new THREE.MeshBasicMaterial({ color: "#bde0fe", transparent: true, opacity: 0.45, depthWrite: false });
-    this.ice = new Pool(g, () => {
-      const m = new THREE.Mesh(iceGeo, iceMat);
-      m.rotation.x = -Math.PI / 2;
-      return m;
-    });
   }
 
   /** Per-ball battle gear: HP bar, weapon icon, hammer, spikes, magnet ring. */
@@ -275,7 +271,7 @@ export class ArenaView {
     this.hammers = [];
     this.spikes = [];
     this.magnets = [];
-    for (const p of [this.crates, this.lasers, this.rockets, this.mines, this.ice]) p.clear();
+    for (const p of [this.crates, this.lasers, this.rockets, this.mines]) p.clear();
     if (!this.battle) return;
     const spikeGeo = new THREE.ConeGeometry(0.16, 0.55, 8);
     const spikeMat = new THREE.MeshStandardMaterial({ color: "#e9ecef", metalness: 0.6, roughness: 0.3 });
@@ -391,10 +387,13 @@ export class ArenaView {
       const j = prev.get(d[i]);
       return j === undefined ? [d[i + 1], d[i + 2]] : [pa[j + 1] + (d[i + 1] - pa[j + 1]) * k, pa[j + 2] + (d[i + 2] - pa[j + 2]) * k];
     };
-    const prevL = byId(a.l, 3);
-    this.lasers.sync(b.l, 3, (m, d, i) => {
+    const prevL = byId(a.l, 4);
+    this.lasers.sync(b.l, 4, (m, d, i) => {
       const [x, z] = lerp(prevL, a.l, d, i);
       m.position.set(x, 0.7, z);
+      const mats = this.laserMats[d[i + 3] % this.laserMats.length];
+      (m as THREE.Mesh).material = mats.core;
+      (m.children[0] as THREE.Mesh).material = mats.glow;
     });
     const prevR = byId(a.r, 4);
     this.rockets.sync(b.r, 4, (m, d, i) => {
@@ -407,7 +406,6 @@ export class ArenaView {
       const light = m.children[0] as THREE.Mesh;
       light.visible = d[i + 3] === 0 || Math.sin(t * 12) > 0; // blinks once armed
     });
-    this.ice.sync(b.i, 3, (m, d, i) => m.position.set(d[i + 1], 0.02, d[i + 2]));
   }
 
   /** Something took damage: red sparks where it happened. */

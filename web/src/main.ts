@@ -482,7 +482,7 @@ function renderBet() {
     const pot = BigInt(t.entryFeeWei) * BigInt(t.maxPlayers);
     prize.classList.remove("bad");
     prize.textContent = `Win ${eth((pot * 95n) / 100n)}`;
-    $("#bet-detail").textContent = `${t.maxPlayers} players each pay ${eth(t.entryFeeWei)}. The winner takes the pot minus the 5% house cut.`;
+    $("#bet-detail").textContent = `${t.maxPlayers} players each pay ${eth(t.entryFeeWei)}. Winner takes the pot.`;
   }
   const go = $<HTMLButtonElement>("#bet-go");
   go.disabled = !live || typeof t === "string";
@@ -1071,7 +1071,7 @@ function showResult() {
     if (room.mode === "paid" && room.you !== null && r.sig) html += `<button class="btn" id="claim">Get my ${eth(room.entryFee!)} back</button>`;
   } else if (youWon) {
     html = `<h2>🏆 You win!</h2>`;
-    if (room.mode === "paid" && r.sig) html += `<p>The pot is yours, minus the 5% fee.</p><button class="btn" id="claim">Claim ${eth((pot * 95n) / 100n)}</button>`;
+    if (room.mode === "paid" && r.sig) html += `<p>You won ${eth((pot * 95n) / 100n)}.</p><button class="btn" id="claim">Claim ${eth((pot * 95n) / 100n)}</button>`;
   } else {
     html = `<h2>${esc(seatName(r.winnerSeat))} wins</h2>`;
     if (room.mode === "paid") html += `<p class="muted">Better luck next round.</p>`;
