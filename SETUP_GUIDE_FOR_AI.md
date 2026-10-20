@@ -180,7 +180,7 @@ Without this, the bet buttons ask for a browser wallet extension instead, which 
 1. Sign up at https://dashboard.privy.io and create an app (any name, for example "Bumper Balls").
 2. In the app's **Login methods** settings, turn on **Email** and **Google**. Leave the others off.
 3. In the **Embedded wallets** settings, make sure **Ethereum** wallets are enabled.
-4. In the app's allowed domains settings (Privy calls this the allowed origins / domains list), add every address the game is opened from: for example `https://play.theirsite.com` (and any other address they use for the game). Sign-in is refused on any address not on that list.
+4. Under **App settings > Basics > Domains and clients**, in **Allowed origins**, add every address the game is opened from, with `https://` and **no slash at the end**, for example `https://play.theirsite.com` or `https://bumper-balls-xxxx.onrender.com`, pressing **Add** after each. Sign-in is refused on any address not on that list. Leave **HttpOnly cookies** off.
 5. Copy the **App ID** from the app's settings (a short code, not the App Secret; the secret is never needed).
 6. Add the setting `PRIVY_APP_ID` with that value and restart the server (VPS: add the line `PRIVY_APP_ID=...` to `/etc/bumper-balls.env` and run `sudo systemctl restart bumper-balls`; cPanel: add it under Environment variables and Restart; Render: add it under Environment).
 7. Reload the site. The top-right button now says **Sign in**, and signing in with email or Google shows the player's own wallet panel (balance, deposit address, Cash out, Sign out).
