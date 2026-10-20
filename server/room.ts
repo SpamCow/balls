@@ -169,7 +169,8 @@ export class Room {
       const seat = this.seatOf(c);
       if (seat !== null && !this.bots.has(seat)) setInput(this.sim, seat, cleanInput(msg));
     } else if (msg?.t === "poke" && this.cfg.mode === "paid") {
-      this.pollChain();
+      // the player's payment just confirmed: re-read the chain, then always tell them where they stand
+      this.pollChain().then(() => this.send(c, { t: "seats", you: this.seatOf(c), ...this.publicState() }));
     } else if (msg?.t === "begin" && this.cfg.mode === "friends" && this.seatOf(c) === this.hostSeat) {
       if (this.phase === "waiting" || this.phase === "over") this.resetForRound(msg.bots !== false);
     } else if (msg?.t === "ping") {

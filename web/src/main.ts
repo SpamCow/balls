@@ -493,9 +493,12 @@ async function joinPaid(tier: Tier, stale?: string): Promise<void> {
       setStatus(`Confirm the ${eth(t.entryFee)} entry in your wallet…`);
       const hash = await wallet.writeContract(request);
       rememberMatch(t.matchId);
-      setStatus(`Paying entry… <a href="${txLink(hash)}" target="_blank" rel="noopener">view transaction</a>`);
+      // the server may already have seen the payment by the time the wallet hands back the hash
+      // (Privy's wallet can wait on its own confirmation screen), so only show this if we're not seated yet
+      if (room?.you == null) setStatus(`Paying entry… <a href="${txLink(hash)}" target="_blank" rel="noopener">view transaction</a>`);
       await pub.waitForTransactionReceipt({ hash });
       ws?.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ t: "poke" }));
+      renderPhase(); // never leave "Paying entry…" up once the payment is confirmed
       toast("You're in. Waiting for the other players.", "ok");
     } else {
       openRoom(t.matchId);
