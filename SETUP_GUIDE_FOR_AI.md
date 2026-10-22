@@ -347,6 +347,28 @@ Use this when the game already runs on Render and the owner wants it on a VPS or
 6. **Switch:** add the new address to Privy's Allowed origins (Step 4) if it changes, then point the game's domain at the new host (DNS `A` record for a VPS). On Render, suspend the service (Settings → Suspend) once the new site works. Don't set `SWEEP_DEPLOYER_TO`: the deployer's gas money is shared by both, since it comes from the same secret.
 7. **After a few days,** delete the Render service.
 
+### Example: moving to Vultr, paid in crypto
+
+Use this when the owner wants to pay for hosting in crypto. Vultr takes BTC, ETH, USDC, LTC, DOGE and a few others through BitPay. Namecheap sells domains for Bitcoin.
+
+**Which plan:** a Vultr **Cloud Compute, Regular** server running Ubuntu 24.04.
+- 4 vCPU / 8 GB, $40 a month with 4 TB of traffic, for growth.
+- The 2 vCPU / 4 GB plan, about $20 a month, is plenty to start. Check vultr.com/pricing for the current price.
+
+Either is far more than Render Starter. The game runs on one CPU core, and 100 players used about 10% of a core in testing, so a single fast core is what matters. Adding cores past 2 doesn't add players. Traffic is about 30 MB per player-hour, so 4 TB covers well over 100,000 player-hours a month.
+
+**The owner does this** (give them these steps in one message):
+1. Create a Vultr account. Under Billing, choose **Crypto** and add credit, for example $50–100. Vultr may also ask for a card or PayPal to verify a new account.
+2. Vultr credit is **prepaid**: when it runs out, the server is suspended. Keep a few months of credit on it and turn on low-balance emails.
+3. Deploy a server: **Cloud Compute → Regular**, a location near most players, **Ubuntu 24.04**, the plan above. Add their SSH key, or send you the root password from the server page.
+4. Send you the server's IP address and SSH access.
+5. Domain: keep the current one, or buy one at Namecheap (Account → Add funds → Bitcoin). In the domain's DNS settings, add an **A record** for the game's subdomain (for example `play`) pointing at the server's IP. If you can reach their DNS yourself, do it for them.
+
+**You:**
+1. Follow **Path V** on the new server, but with the moved settings from the list above. Keep the same `SERVER_SECRET`, copy over `profiles.json`, and use the game's real address in the Caddyfile.
+2. Check `https://<game address>/healthz` and `/api/config`. The contract address must match the old site.
+3. Switch over at a quiet moment, as in the list above. Then suspend the old Render service, and delete it a few days later.
+
 ## Taking the site down
 
 1. Ask players to cash out first. Their built-in wallets are held through Privy, and the site is their easy way to reach them.
