@@ -120,7 +120,11 @@ function renderWallet() {
 function openWalletPicker() {
   if (cfg.privyAppId) {
     if (account) openAccount();
-    else if (privy) privy.login();
+    else if (privy) {
+      // Privy's sign-in window would open behind any open dialog
+      document.querySelectorAll<HTMLDialogElement>("dialog[open]").forEach((d) => d.close());
+      privy.login();
+    }
     else toast(privyProblem ?? "Sign-in is still loading. Try again in a second.", privyProblem ? "error" : "info");
     return;
   }
@@ -187,7 +191,7 @@ async function session(): Promise<string> {
   const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
   const message = `${location.host} wants you to sign in to Bumper Balls.\n\nThis only proves you own this wallet. It costs nothing and moves no funds.\n\nAddress: ${a}\nChain ID: ${cfg.chainId}\nIssued: ${issued}\nNonce: ${nonce}`;
   const { wallet } = clients(p, a, chain);
-  const signature = await wallet.signMessage({ account: a, message });
+  const signature = await signing(() => wallet.signMessage({ account: a, message }));
   const r = await fetch("/api/login", { method: "POST", body: JSON.stringify({ address: a, issued, nonce, signature }) });
   const j = await r.json();
   if (!r.ok) throw new Error(j.error || "Sign-in failed");
@@ -317,8 +321,8 @@ function openAccount(need?: bigint) {
 }
 
 /**
- * Privy's approve window is an ordinary page element, so an open dialog (which the
- * browser always draws on top) would hide it. Step the dialogs aside while the
+ * Privy's approve and sign windows are ordinary page elements, so an open dialog (which the
+ * browser always draws on top) would hide them. Step the dialogs aside while the
  * player approves, then bring them back.
  */
 let signingNow = false;
