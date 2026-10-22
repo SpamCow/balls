@@ -112,7 +112,7 @@ function txLink(hash: string) {
 
 function renderWallet() {
   const btn = $("#wallet-btn");
-  btn.textContent = account ? (profile?.name ?? privyState?.label ?? short(account)) : privy || cfg.privyAppId ? "Sign in" : "Connect wallet";
+  btn.textContent = account ? (profile?.name ?? privyState?.label ?? short(account)) : "Sign in";
   btn.classList.toggle("connected", !!account);
   $("#net").textContent = cfg.chainName ?? `Chain ${cfg.chainId}`;
 }
@@ -124,6 +124,8 @@ function openWalletPicker() {
     else toast(privyProblem ?? "Sign-in is still loading. Try again in a second.", privyProblem ? "error" : "info");
     return;
   }
+  // sign-in is Privy only; a site without PRIVY_APP_ID hasn't finished its setup
+  if (!account) return toast("Sign-in isn't set up on this site yet. The site owner needs to add their Privy App ID (PRIVY_APP_ID).", "error");
   if (account) {
     if (confirm("Disconnect this wallet?")) {
       account = null;
@@ -171,7 +173,7 @@ function openWalletPicker() {
 async function requireWallet(): Promise<{ provider: EIP1193Provider; account: Address }> {
   if (!provider || !account) {
     openWalletPicker();
-    throw new Error(cfg.privyAppId ? "Sign in first." : "Connect a wallet first.");
+    throw new Error("Sign in first.");
   }
   await ensureChain(provider, chain);
   return { provider, account };
@@ -380,7 +382,7 @@ async function renderHome() {
 async function renderMine() {
   const box = $("#mine");
   if (!account || !provider) {
-    box.innerHTML = `<p class="muted">${cfg.privyAppId ? "Sign in" : "Connect a wallet"} to see your matches and winnings.</p>`;
+    box.innerHTML = `<p class="muted">Sign in to see your matches and winnings.</p>`;
     return;
   }
   if (cfg.paid?.state !== "live") {
@@ -1031,7 +1033,7 @@ async function paidLinkHelp(id: string) {
   const tier = tierOf(m?.tierId);
   if (!m || !tier) return setStatus("That match isn't available any more.");
   if (!m.joinable) return setStatus(`That ${esc(tier.label)} is already full or finished. <button class="btn small" id="link-home">Find another match</button>`), linkButtons(tier);
-  const signIn = cfg.privyAppId ? "Sign in" : "Connect a wallet";
+  const signIn = "Sign in";
   setStatus(
     account
       ? `A friend invited you to a ${esc(tier.label)}. <button class="btn small" id="link-join">Join for ${eth(tier.entryFeeWei)}</button>`

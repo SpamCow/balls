@@ -359,4 +359,5 @@ server.on("upgrade", async (req, socket, head) => {
 });
 
 server.listen(PORT, () => log(`Bumper Balls on :${PORT} (chain ${env.CHAIN_ID}, escrow ${env.CONTRACT_ADDRESS})`));
+if (!process.env.PRIVY_APP_ID) log("PRIVY_APP_ID is not set, so players can't sign in. Add the App ID from dashboard.privy.io (see the setup guide, Step 4).");
 

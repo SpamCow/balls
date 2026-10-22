@@ -16,4 +16,6 @@ services:
         generateValue: true
       - key: CHAIN_ID
         value: "46630"       # Robinhood Chain testnet
-      # Add PRIVY_APP_ID (from dashboard.privy.io) for email/Google sign-in with built-in wallets
+      # Required: add PRIVY_APP_ID (the App ID from dashboard.privy.io) for email/Google sign-in with built-in wallets
+      - key: PRIVY_APP_ID
+        sync: false          # Render asks for it when the Blueprint is created

@@ -228,7 +228,25 @@ Do as much of this as you can through cPanel's terminal or SSH, if the host offe
 
   Free play works inside the frame, but Google sign-in pop-ups often fail there. For paid play, link to the game instead of embedding it.
 
-## Step 4 (optional). Paid play
+## Step 4. Sign-in with Privy (always do this)
+
+Players sign in with email or Google through Privy, which also gives each of them a built-in wallet. Do this step even if the owner only wants free play: without it the site has no sign-in, so usernames, stats and the Top players board don't work, and the top-right button says "Sign-in isn't set up".
+
+**The owner does this at https://dashboard.privy.io** (give them all of these steps in one message):
+
+1. Create an app.
+2. Under Login methods, turn on **Email** and **Google**.
+3. Make sure Ethereum embedded wallets are on.
+4. Under App settings → Domains, add the **exact** game address to **Allowed origins**: with `https://`, no slash at the end, and no `www.` unless the site really uses it. For example `https://play.theirsite.com`.
+5. Send you the **App ID** (not the secret).
+
+**You:**
+
+- Set `PRIVY_APP_ID` and restart. On Render it's an environment variable; on a VPS or cPanel it goes in the settings file next to `SERVER_SECRET`. The top-right button then says **Sign in**.
+- If sign-in fails with "Something went wrong" and the browser console shows `403` from `auth.privy.io`, the Allowed origins entry doesn't exactly match the address in the browser. Privy's own suggestion sometimes adds `www.`, which breaks it.
+- Check it yourself: `/api/config` must show `"privyAppId":"<the ID>"`, not `null`. The server log also warns at startup when it's missing.
+
+## Step 5 (optional). Paid play
 
 Skip this if the owner only wants free play. Before you start, tell them three things plainly:
 
@@ -247,28 +265,13 @@ Skip this if the owner only wants free play. Before you start, tell them three t
 
 Fill these in yourself, then remove any line they don't want. Tell the owner plainly that a lawyer should review both pages, because you are not one.
 
-### 4a. Privy sign-in
-
-**The owner does this at https://dashboard.privy.io** (give them all of these steps in one message):
-
-1. Create an app.
-2. Under Login methods, turn on **Email** and **Google**.
-3. Make sure Ethereum embedded wallets are on.
-4. Under App settings → Domains, add the **exact** game address to **Allowed origins**: with `https://`, no slash at the end, and no `www.` unless the site really uses it. For example `https://play.theirsite.com`.
-5. Send you the **App ID** (not the secret).
-
-**You:**
-
-- Set `PRIVY_APP_ID` and restart. The top-right button then says **Sign in**.
-- If sign-in fails with "Something went wrong" and the browser console shows `403` from `auth.privy.io`, the Allowed origins entry doesn't exactly match the address in the browser. Privy's own suggestion sometimes adds `www.`, which breaks it.
-
-### 4b. Testnet first (free), the default
+### 5a. Testnet first (free), the default
 
 - `CHAIN_ID=46630` is Robinhood Chain testnet. The site shows the deployer address under "Play for testnet ETH".
 - Ask the owner to send about 0.005 test ETH there from a faucet (for example https://www.alchemy.com/faucets/robinhood-testnet). The bet buttons unlock within about a minute.
 - Play a 0.001 duel in two browsers to check it end to end.
 
-### 4c. Real ETH (Robinhood Chain mainnet)
+### 5b. Real ETH (Robinhood Chain mainnet)
 
 This needs the owner's explicit yes. Then set:
 
@@ -347,7 +350,7 @@ Snapshots kept arriving every ~33 ms (99th percentile 36 ms at 100 players, 43 m
 | Site down | `/healthz`; on a VPS, `systemctl status bumper-balls` and the journal. A message about `SERVER_SECRET` means it's missing |
 | HTTPS error (VPS) | DNS `A` record, ports 80 and 443 open, `journalctl -u caddy` |
 | Page loads, matches never start | WebSockets blocked (cPanel), or more than one server running |
-| Sign-in does nothing, or 403 | Privy Allowed origins (4a) |
+| Sign-in does nothing, or 403 | Privy Allowed origins (Step 4) |
 | Bet buttons locked | The message under the paid section. Deployer funding, on the right network |
 | Player money looks stuck | The server sends stakes back by itself about a minute after the timeout, if the deployer has gas money (check the log for `sent the stakes back`). Otherwise, under **Your matches** on the home page, press **Refund** or **Withdraw**; it comes straight from the contract |
 | Lag | Use the mute button to test whether it's the device. Check the server isn't on a free or sleeping plan |
@@ -363,7 +366,7 @@ Snapshots kept arriving every ~33 ms (99th percentile 36 ms at 100 players, 43 m
 | `FEE_SPLIT` | not set | `0xA:69,0xB:31` |
 | `MAX_BET_ETH` | `1` | Biggest entry a player can pick |
 | `RPC_URL` | public RPC | |
-| `PRIVY_APP_ID` | not set | Turns on email/Google sign-in |
+| `PRIVY_APP_ID` | not set | **Required.** Email/Google sign-in and players' built-in wallets |
 | `WALLETCONNECT_PROJECT_ID` | not set | Only used without Privy |
 | `CONTRACT_ADDRESS` | worked out automatically | Only set if you deployed the contract by hand |
 | `DATA_DIR` | `/var/lib/bumper-balls` (VPS), `/data` (Render) | Paid matches in play, plus `profiles.json`. Back it up |
