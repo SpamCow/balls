@@ -335,6 +335,18 @@ Snapshots kept arriving every ~33 ms (99th percentile 36 ms at 100 players, 43 m
   - **VPS:** fetch the new zip, then `sudo rm -rf /opt/bumper-balls && sudo unzip -q <zip> -d /opt && sudo systemctl restart bumper-balls`. Settings and data are kept.
   - **cPanel:** replace the files, then Restart.
 
+## Moving an existing site off Render
+
+Use this when the game already runs on Render and the owner wants it on a VPS or cPanel instead. Done this way, balances, the contract, usernames and stats all carry over.
+
+1. **Copy the settings from Render** (owner, or you with their `RENDER_API_KEY`): Render → the service → Environment. Write down `SERVER_SECRET`, `PRIVY_APP_ID`, `CHAIN_ID`, `ALLOW_MAINNET`, `FEE_RECIPIENT`, `FEE_SPLIT`, `MAX_BET_ETH` and anything else set there.
+2. **Use the same `SERVER_SECRET` on the new host.** On a VPS, skip the `openssl rand` line in Path V and put the copied value in `/etc/bumper-balls.env`, with the other settings. A different secret means a different contract, and players' balances would no longer show on the site.
+3. **Copy the data:** Render → the service → Shell, then `cat /data/profiles.json` (usernames and stats). Save it on the new host as `profiles.json` in its `DATA_DIR`, for example on a VPS: `sudo systemctl stop bumper-balls`, copy it to `/var/lib/bumper-balls/profiles.json`, then `sudo systemctl start bumper-balls` (systemd fixes the file's owner). Skip the other files in `/data`; they only matter for matches in play.
+4. **Set up the new host** with Path V or Path C, then check it on its own address before switching (`/healthz`, then `/api/config` should show the **same** contract address as the Render site).
+5. **Pick a quiet moment** with no paid matches in play. Only one server may run at a time, because rooms live in memory.
+6. **Switch:** add the new address to Privy's Allowed origins (Step 4) if it changes, then point the game's domain at the new host (DNS `A` record for a VPS). On Render, suspend the service (Settings → Suspend) once the new site works. Don't set `SWEEP_DEPLOYER_TO`: the deployer's gas money is shared by both, since it comes from the same secret.
+7. **After a few days,** delete the Render service.
+
 ## Taking the site down
 
 1. Ask players to cash out first. Their built-in wallets are held through Privy, and the site is their easy way to reach them.
