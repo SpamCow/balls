@@ -218,3 +218,16 @@ dialog::backdrop { background: #0008; }
 @media (pointer: coarse) {
   .battle-help { top: auto; bottom: 110px; left: 16px; transform: none; flex-direction: column; gap: 4px; border-radius: 12px; }
 }
+/* iPhone Safari zooms the whole page in when a text box under 16px gets focus, and stays zoomed,
+   which pushes the arena and buttons off screen. 16px boxes, no double-tap zoom. */
+html { touch-action: manipulation; -webkit-text-size-adjust: 100%; }
+@media (pointer: coarse) {
+  input, select, textarea { font-size: 16px !important; }
+  .dash-btn { bottom: calc(32px + env(safe-area-inset-bottom)); right: calc(24px + env(safe-area-inset-right)); }
+  .use-btn { bottom: calc(132px + env(safe-area-inset-bottom)); }
+  .dash-meter { bottom: calc(9px + env(safe-area-inset-bottom)); }
+}
+@media (pointer: coarse) and (max-width: 560px) {
+  .seats { gap: 4px; }
+  .seat { padding: 3px 8px; font-size: 0.75rem; }
+}

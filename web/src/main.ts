@@ -689,6 +689,7 @@ async function openRoom(id: string) {
   $("#home").hidden = true;
   $("#fees").hidden = true;
   $("#match").hidden = false;
+  scrollTo(0, 0);
   $("#result").hidden = true;
   (document.activeElement as HTMLElement | null)?.blur?.(); // keys go to the game, not a lobby text box
   setStatus("Connecting…");

@@ -673,7 +673,7 @@ export class ArenaView {
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     // pull the camera back on narrow screens so the whole arena stays in view
-    this.zoom = Math.max(1, 1.05 / this.camera.aspect);
+    this.zoom = Math.max(1, 1.2 / this.camera.aspect);
     const fog = this.scene.fog as THREE.Fog;
     fog.near = 30 * this.zoom;
     fog.far = 70 * this.zoom;
