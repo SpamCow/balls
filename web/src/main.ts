@@ -691,6 +691,8 @@ async function openRoom(id: string) {
   $("#match").hidden = false;
   scrollTo(0, 0);
   $("#result").hidden = true;
+  $("#match").classList.remove("spectating");
+  $("#spectating").hidden = true;
   (document.activeElement as HTMLElement | null)?.blur?.(); // keys go to the game, not a lobby text box
   setStatus("Connecting…");
   view.setPlayers(0, null);
@@ -971,7 +973,10 @@ let lastBeep = 0;
 function renderPhase() {
   if (!room) return;
   if (countdownTimer) clearInterval(countdownTimer);
-  $("#controls-hint").hidden = room.phase !== "countdown" && room.phase !== "playing";
+  const watching = room.you === null && room.phase !== "over" && room.phase !== "expired";
+  $("#match").classList.toggle("spectating", watching);
+  $("#spectating").hidden = !watching;
+  $("#controls-hint").hidden = watching || (room.phase !== "countdown" && room.phase !== "playing");
   $("#dash-meter").hidden = room.phase !== "playing" || room.you === null;
   const battle = room.variant === "battle";
   $("#controls-hint").textContent = battle ? "WASD - move · Space - dash · E - use weapon" : "WASD - move · Space - dash";
@@ -990,11 +995,11 @@ function renderPhase() {
       const tier = tierOf(room.tierId);
       setStatus(
         room.you === null
-          ? `Waiting for ${left} more player${left === 1 ? "" : "s"}…${tier ? ` <button class="btn small" id="link-join">Join for ${eth(tier.entryFeeWei)}</button>` : ""}`
+          ? `Waiting for ${left} more player${left === 1 ? "" : "s"}…${tier ? (account ? ` <button class="btn small" id="link-join">Join for ${eth(tier.entryFeeWei)}</button>` : ` <button class="btn small" id="link-signin">Sign in to join</button>`) : ""}`
           : `You're in. Waiting for ${left} more player${left === 1 ? "" : "s"}. If it doesn't fill in ~${mins} min, you can take your entry back.`,
       );
       $("#share").hidden = false;
-      if (tier) $("#link-join")?.addEventListener("click", () => joinPaid(tier));
+      if (tier) linkButtons(tier);
     } else if (room.mode === "friends") {
       const n = room.seats.filter(Boolean).length;
       setStatus(
@@ -1030,8 +1035,8 @@ function renderPhase() {
   }
 }
 
-// Someone opened a shared link to a paid match. Watching needs a signed-in
-// player, so explain that and offer to join it rather than calling it gone.
+// Someone opened a shared link to a paid match the server no longer has a room for
+// (live matches open straight away, so anyone can watch them).
 async function paidLinkHelp(id: string) {
   const r = await fetch(`/api/match/${id}`).catch(() => null);
   const m = r?.ok ? ((await r.json()) as RoomState & { joinable: boolean }) : null;

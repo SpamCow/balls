@@ -231,3 +231,7 @@ html { touch-action: manipulation; -webkit-text-size-adjust: 100%; }
   .seats { gap: 4px; }
   .seat { padding: 3px 8px; font-size: 0.75rem; }
 }
+
+/* watching a full match: no controls, just the game */
+.pill.watching { background: var(--accent); color: #fff; }
+#match.spectating .stick, #match.spectating .dash-btn, #match.spectating .use-btn { display: none !important; }

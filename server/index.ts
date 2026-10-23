@@ -343,7 +343,7 @@ server.on("upgrade", async (req, socket, head) => {
   if (!room) return reject(404, "Not Found");
   if ((ipConns.get(ip) ?? 0) >= MAX_CONNS_PER_IP) return reject(429, "Too Many Requests");
   const address = await verifyToken(env, url.searchParams.get("token"));
-  if (room.cfg.mode === "paid" && !address) return reject(401, "Unauthorized");
+  // no sign-in (or no seat) just means watching: rooms only take input from seated players
   const name =
     (address && profiles.name(address)) ||
     String(url.searchParams.get("name") || "")
