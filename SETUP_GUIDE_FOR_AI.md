@@ -65,7 +65,7 @@ If the owner received the repository itself (a GitHub transfer of `SpamCow/balls
 - They sign in with email or Google through **Privy**, which gives each player a built-in wallet on **Robinhood Chain**.
 - They deposit ETH to that wallet, play, and cash out to any address from the account panel.
 - After signing in they choose a unique username (3 to 16 letters, numbers or `_`).
-- Wins, losses and ETH won show in the account panel, and the home page has a Top players board.
+- Wins, losses and ETH won show in the account panel. The home page has two boards, Top 10 free and Top 10 paid, plus a count of everyone who has ever started a match (signed-in players by wallet, guests once per browser).
 
 **Skins:** players pick a ball skin on the home page, and everyone in the room sees it. Skins are the image files in `web/public/skins/`. There's more under Changing the game.
 
@@ -80,7 +80,7 @@ If the owner received the repository itself (a GitHub transfer of `SpamCow/balls
 | `server/deploy.ts` | Deploys the escrow contract automatically |
 | `server/chain.ts` | Chain calls: settle, deployer transactions, sweep |
 | `server/fees.ts` | Fee wallet settings (`FEE_RECIPIENT` / `FEE_SPLIT`), kept in sync with the contract |
-| `server/profiles.ts` | Usernames and stats, stored in `DATA_DIR/profiles.json` |
+| `server/profiles.ts` | Usernames and stats in `DATA_DIR/profiles.json`, and the all-time player count in `DATA_DIR/players.txt` |
 | `server/auth.ts` | Sign-in tokens |
 | `server/env.ts` | Reads settings and derives keys |
 | `shared/physics.ts` | The game simulation. `shared/config.ts` holds bet limits and presets, chains and colors |
@@ -195,7 +195,7 @@ sudo ufw allow OpenSSH && sudo ufw allow 80 && sudo ufw allow 443 && sudo ufw --
 
 - **Check it** with `curl -sI https://play.theirsite.com` and a Quick game vs bots.
 - **Back up the settings file:** give the owner the contents of `/etc/bumper-balls.env` to keep in their password manager.
-- **Data** lives in `/var/lib/bumper-balls`: paid matches in play, and `profiles.json` with usernames and stats.
+- **Data** lives in `/var/lib/bumper-balls`: paid matches in play, `profiles.json` with usernames and stats, and `players.txt` behind the "people have played" count.
 - **Logs:** `sudo journalctl -u bumper-balls -n 100`. Caddy's are in `journalctl -u caddy`.
 - **To change settings,** edit `/etc/bumper-balls.env`, then `sudo systemctl restart bumper-balls`.
 
@@ -341,7 +341,7 @@ Use this when the game already runs on Render and the owner wants it on a VPS or
 
 1. **Copy the settings from Render** (owner, or you with their `RENDER_API_KEY`): Render → the service → Environment. Write down `SERVER_SECRET`, `PRIVY_APP_ID`, `CHAIN_ID`, `ALLOW_MAINNET`, `FEE_RECIPIENT`, `FEE_SPLIT`, `MAX_BET_ETH` and anything else set there.
 2. **Use the same `SERVER_SECRET` on the new host.** On a VPS, skip the `openssl rand` line in Path V and put the copied value in `/etc/bumper-balls.env`, with the other settings. A different secret means a different contract, and players' balances would no longer show on the site.
-3. **Copy the data:** Render → the service → Shell, then `cat /data/profiles.json` (usernames and stats). Save it on the new host as `profiles.json` in its `DATA_DIR`, for example on a VPS: `sudo systemctl stop bumper-balls`, copy it to `/var/lib/bumper-balls/profiles.json`, then `sudo systemctl start bumper-balls` (systemd fixes the file's owner). Skip the other files in `/data`; they only matter for matches in play.
+3. **Copy the data:** Render → the service → Shell, then `cat /data/profiles.json` (usernames and stats) and `cat /data/players.txt` (the "people have played" count, if it exists). Save them on the new host under the same names in its `DATA_DIR`, for example on a VPS: `sudo systemctl stop bumper-balls`, copy them to `/var/lib/bumper-balls/`, then `sudo systemctl start bumper-balls` (systemd fixes the file's owner). Skip the other files in `/data`; they only matter for matches in play.
 4. **Set up the new host** with Path V or Path C, then check it on its own address before switching (`/healthz`, then `/api/config` should show the **same** contract address as the Render site).
 5. **Pick a quiet moment** with no paid matches in play. Only one server may run at a time, because rooms live in memory.
 6. **Switch:** add the new address to Privy's Allowed origins (Step 4) if it changes, then point the game's domain at the new host (DNS `A` record for a VPS). On Render, suspend the service (Settings → Suspend) once the new site works. Don't set `SWEEP_DEPLOYER_TO`: the deployer's gas money is shared by both, since it comes from the same secret.
@@ -365,7 +365,7 @@ Either is far more than Render Starter. The game runs on one CPU core, and 100 p
 5. Domain: keep the current one, or buy one at Namecheap (Account → Add funds → Bitcoin). In the domain's DNS settings, add an **A record** for the game's subdomain (for example `play`) pointing at the server's IP. If you can reach their DNS yourself, do it for them.
 
 **You:**
-1. Follow **Path V** on the new server, but with the moved settings from the list above. Keep the same `SERVER_SECRET`, copy over `profiles.json`, and use the game's real address in the Caddyfile.
+1. Follow **Path V** on the new server, but with the moved settings from the list above. Keep the same `SERVER_SECRET`, copy over `profiles.json` and `players.txt`, and use the game's real address in the Caddyfile.
 2. Check `https://<game address>/healthz` and `/api/config`. The contract address must match the old site.
 3. Switch over at a quiet moment, as in the list above. Then suspend the old Render service, and delete it a few days later.
 
@@ -403,7 +403,7 @@ Either is far more than Render Starter. The game runs on one CPU core, and 100 p
 | `PRIVY_APP_ID` | not set | **Required.** Email/Google sign-in and players' built-in wallets |
 | `WALLETCONNECT_PROJECT_ID` | not set | Only used without Privy |
 | `CONTRACT_ADDRESS` | worked out automatically | Only set if you deployed the contract by hand |
-| `DATA_DIR` | `/var/lib/bumper-balls` (VPS), `/data` (Render) | Paid matches in play, plus `profiles.json`. Back it up |
+| `DATA_DIR` | `/var/lib/bumper-balls` (VPS), `/data` (Render) | Paid matches in play, plus `profiles.json` and `players.txt`. Back it up |
 | `PORT` | `8787` | cPanel sets it itself |
 | `TRUST_PROXY` | `1` on a VPS | Set when a proxy (Caddy or the host) sits in front |
 | `SWEEP_DEPLOYER_TO` | not set | Shutdown only: sends the deployer's ETH to this wallet on startup |

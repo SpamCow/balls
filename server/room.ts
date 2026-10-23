@@ -29,7 +29,7 @@ export type Config = {
 };
 
 type Result = { winnerSeat: number | null; winner: Address; sig: Hex | null };
-type Conn = { ws: WebSocket; address: Address | null; name: string; seat: number | null; msgs: number; windowStart: number };
+type Conn = { ws: WebSocket; address: Address | null; name: string; seat: number | null; msgs: number; windowStart: number; pid?: string };
 
 const PRACTICE_FILL_SEC = 5;
 const MAX_MSG_BYTES = 256;
@@ -40,7 +40,9 @@ const BOT_LEVEL = 0.75;
 export interface Persist {
   activePaid(matchId: string, active: boolean): void;
   /** Count a finished match toward a signed-in player's record. */
-  record(address: Address, won: boolean, prizeWei: bigint): void;
+  record(address: Address, won: boolean, prizeWei: bigint, board: "free" | "paid"): void;
+  /** Everyone who started a match (wallets, or a guest's browser id), for the all-time player count. */
+  played(ids: string[]): void;
   nameOf(address: Address): string | null;
 }
 
@@ -88,9 +90,9 @@ export class Room {
 
   // ------------------------------------------------------------ connections
 
-  attach(ws: WebSocket, address: Address | null, name: string, skin = "") {
+  attach(ws: WebSocket, address: Address | null, name: string, skin = "", pid = "") {
     this.lastActive = Date.now();
-    const conn: Conn = { ws, address, name, seat: null, msgs: 0, windowStart: Date.now() };
+    const conn: Conn = { ws, address, name, seat: null, msgs: 0, windowStart: Date.now(), pid: pid || undefined };
     // one live connection per wallet: a new tab replaces the old one
     if (address) for (const c of this.conns) if (c.address === address) this.drop(c);
     this.conns.add(conn);
@@ -323,6 +325,10 @@ export class Room {
     const battle = this.variant === "battle";
     this.sim = battle ? createBattleSim(n) : createSim(n);
     this.phase = "playing";
+    this.persist.played([
+      ...this.seats.flatMap((s, i) => (s && !s.startsWith("guest:") && !this.bots.has(i) ? [s] : [])),
+      ...[...this.conns].flatMap((c) => (c.seat !== null && !c.address && c.pid && !this.bots.has(c.seat) ? [`guest:${c.pid}`] : [])),
+    ]);
     this.broadcastSeats();
     this.broadcast({ t: "start", round: this.round });
 
@@ -366,7 +372,7 @@ export class Room {
       this.seats.forEach((s, i) => {
         if (!s || s.startsWith("guest:") || this.bots.has(i)) return;
         const won = i === winnerSeat;
-        this.persist.record(s as Address, won, won ? (pot * 95n) / 100n : 0n);
+        this.persist.record(s as Address, won, won ? (pot * 95n) / 100n : 0n, cfg.mode === "paid" ? "paid" : "free");
       });
     }
     this.phase = "over";

@@ -274,13 +274,23 @@ async function saveName(e: Event) {
   }
 }
 
+type Leader = { name: string; wins: number; losses: number; earnedWei?: string };
 async function renderLeaders() {
   try {
-    const rows = (await (await fetch("/api/leaderboard")).json()) as { name: string; wins: number; losses: number }[];
-    if (!rows.length) return;
-    $("#leaders").innerHTML = `<ol class="leaders">${rows
-      .map((r, i) => `<li class="${r.name === profile?.name ? "me" : ""}"><span class="rank">${i + 1}</span><span>${esc(r.name)}</span><span class="muted small">${r.wins}W · ${r.losses}L</span></li>`)
-      .join("")}</ol>`;
+    const r = (await (await fetch("/api/leaderboard")).json()) as { free: Leader[]; paid: Leader[]; players: number };
+    if (r.players > 0) {
+      $("#players-total").textContent = `${r.players.toLocaleString()} ${r.players === 1 ? "person has" : "people have"} played`;
+      $("#players-total").hidden = false;
+    }
+    const list = (rows: Leader[]) =>
+      `<ol class="leaders">${rows
+        .map(
+          (r, i) =>
+            `<li class="${r.name === profile?.name ? "me" : ""}"><span class="rank">${i + 1}</span><span>${esc(r.name)}</span><span class="muted small">${r.wins}W · ${r.losses}L${r.earnedWei && r.earnedWei !== "0" ? ` · ${eth(r.earnedWei)} won` : ""}</span></li>`,
+        )
+        .join("")}</ol>`;
+    if (r.free.length) $("#leaders-free").innerHTML = list(r.free);
+    if (r.paid.length) $("#leaders-paid").innerHTML = list(r.paid);
   } catch {}
 }
 
@@ -674,6 +684,16 @@ function openSkins() {
   $<HTMLDialogElement>("#skin-dialog").showModal();
 }
 
+// a random id this browser keeps, so a guest counts once in "people have played"
+function playerId() {
+  let id = store<string>("bb.pid");
+  if (!id || !/^[0-9a-f]{32}$/.test(id)) {
+    id = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, "0")).join("");
+    store("bb.pid", id);
+  }
+  return id;
+}
+
 function nickname() {
   const v = $<HTMLInputElement>("#nick").value.trim().slice(0, 16);
   store("bb.nick", v);
@@ -701,7 +721,7 @@ async function openRoom(id: string) {
   if (account && id.startsWith("0x")) token = await session().catch(() => token);
   if (seq !== openSeq) return; // another room was opened meanwhile
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  const sock = new WebSocket(`${proto}://${location.host}/ws/${id}?token=${encodeURIComponent(token)}&name=${encodeURIComponent(nickname())}&skin=${encodeURIComponent(mySkin)}`);
+  const sock = new WebSocket(`${proto}://${location.host}/ws/${id}?token=${encodeURIComponent(token)}&name=${encodeURIComponent(nickname())}&skin=${encodeURIComponent(mySkin)}&pid=${playerId()}`);
   ws = sock;
   sock.onmessage = (e) => onRoomMessage(JSON.parse(e.data));
   sock.onclose = (e) => {

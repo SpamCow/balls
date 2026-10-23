@@ -193,6 +193,10 @@ dialog::backdrop { background: #0008; }
 .stats b { font-size: 1.05rem; }
 .stats span { font-size: 0.72rem; color: var(--muted); }
 #uname { font: inherit; color: var(--text); background: #0003; border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; width: 100%; box-sizing: border-box; }
+.boards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.boards h4 { margin: 0 0 10px; }
+@media (max-width: 640px) { .boards { grid-template-columns: 1fr; } }
+.players-total { font-size: 0.85rem; font-weight: 500; color: var(--muted); margin-left: 8px; }
 .leaders { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .leaders li { display: grid; grid-template-columns: 2rem 1fr auto; align-items: center; gap: 8px; }
 .leaders .rank { color: var(--muted); font-weight: 700; }

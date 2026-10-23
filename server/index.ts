@@ -11,7 +11,7 @@ import { signerAddress, rpcUrl, signTicket, sweepDeployer, deployerClients, refu
 import { loadEnv } from "./env";
 import { Room, type Config } from "./room";
 import { ensureContract, type ContractStatus } from "./deploy";
-import { createProfiles } from "./profiles";
+import { createPlayerCount, createProfiles } from "./profiles";
 import { syncFees } from "./fees";
 
 const env = loadEnv();
@@ -42,12 +42,14 @@ let currentBattle = "";
 const activeFile = DATA_DIR ? path.join(DATA_DIR, "active-paid.json") : "";
 const activePaid = new Set<string>(activeFile && fs.existsSync(activeFile) ? JSON.parse(fs.readFileSync(activeFile, "utf8")) : []);
 const profiles = createProfiles(DATA_DIR);
+const players = createPlayerCount(DATA_DIR, profiles.addresses);
 const persist = {
   activePaid(id: string, on: boolean) {
     on ? activePaid.add(id) : activePaid.delete(id);
     if (activeFile) fs.writeFileSync(activeFile, JSON.stringify([...activePaid]));
   },
-  record: (address: Address, won: boolean, prizeWei: bigint) => profiles.record(address, won, prizeWei),
+  record: (address: Address, won: boolean, prizeWei: bigint, board: "free" | "paid") => profiles.record(address, won, prizeWei, board),
+  played: (ids: string[]) => players.add(ids),
   nameOf: (address: Address) => profiles.name(address),
 };
 
@@ -290,7 +292,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, profiles.get(address));
     }
     if (p === "/api/skins") return sendJson(res, 200, skinList);
-    if (p === "/api/leaderboard") return sendJson(res, 200, profiles.leaderboard());
+    if (p === "/api/leaderboard") return sendJson(res, 200, { free: profiles.leaderboard("free"), paid: profiles.leaderboard("paid"), players: players.total });
     if (p === "/api/queue" && req.method === "POST") {
       const address = await verifyToken(env, req.headers.authorization?.replace(/^Bearer /, ""));
       if (!address) return sendJson(res, 401, { error: "sign in first" });
@@ -354,7 +356,8 @@ server.on("upgrade", async (req, socket, head) => {
     ipConns.set(ip, (ipConns.get(ip) ?? 0) + 1);
     ws.on("close", () => ipConns.set(ip, Math.max(0, (ipConns.get(ip) ?? 1) - 1)));
     const skin = String(url.searchParams.get("skin") || "");
-    room.attach(ws, address, name, SKINS.includes(skin) ? skin : "");
+    const pid = String(url.searchParams.get("pid") || "");
+    room.attach(ws, address, name, SKINS.includes(skin) ? skin : "", /^[0-9a-f]{32}$/.test(pid) ? pid : "");
   });
 });
 

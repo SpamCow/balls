@@ -5,7 +5,19 @@ import fs from "node:fs";
 import path from "node:path";
 import { getAddress, type Address } from "viem";
 
-export type Profile = { name: string | null; wins: number; losses: number; earnedWei: string };
+// wins/losses count every match; the free*/paid* pairs split them for the two boards
+// (they start at 0 for records made before the split existed)
+export type Profile = {
+  name: string | null;
+  wins: number;
+  losses: number;
+  earnedWei: string;
+  freeWins?: number;
+  freeLosses?: number;
+  paidWins?: number;
+  paidLosses?: number;
+};
+type Board = "free" | "paid";
 
 const NAME_RE = /^[A-Za-z0-9_]{3,16}$/;
 const RESERVED = /^(admin|mod|moderator|bot\d*|guest\d*|you|player|house|system|bumperballs)$/i;
@@ -48,19 +60,57 @@ export function createProfiles(dataDir: string) {
       save();
       return null;
     },
-    record(a: Address, won: boolean, prizeWei = 0n) {
+    record(a: Address, won: boolean, prizeWei = 0n, board: Board = "free") {
       const p = get(a);
-      byAddr.set(key(a), { ...p, wins: p.wins + (won ? 1 : 0), losses: p.losses + (won ? 0 : 1), earnedWei: (BigInt(p.earnedWei) + prizeWei).toString() });
+      const w = `${board}Wins` as const;
+      const l = `${board}Losses` as const;
+      byAddr.set(key(a), {
+        ...p,
+        wins: p.wins + (won ? 1 : 0),
+        losses: p.losses + (won ? 0 : 1),
+        earnedWei: (BigInt(p.earnedWei) + prizeWei).toString(),
+        [w]: (p[w] ?? 0) + (won ? 1 : 0),
+        [l]: (p[l] ?? 0) + (won ? 0 : 1),
+      });
       save();
     },
-    leaderboard(limit = 10) {
+    leaderboard(board: Board, limit = 10) {
+      const w = (p: Profile) => p[`${board}Wins`] ?? 0;
+      const l = (p: Profile) => p[`${board}Losses`] ?? 0;
       return [...byAddr.values()]
-        .filter((p) => p.name && p.wins + p.losses > 0)
-        .sort((x, y) => y.wins - x.wins || x.losses - y.losses)
+        .filter((p) => p.name && w(p) + l(p) > 0)
+        .sort((x, y) => w(y) - w(x) || l(x) - l(y))
         .slice(0, limit)
-        .map((p) => ({ name: p.name!, wins: p.wins, losses: p.losses }));
+        .map((p) => ({ name: p.name!, wins: w(p), losses: l(p), ...(board === "paid" ? { earnedWei: p.earnedWei } : {}) }));
     },
+    /** Signed-in players with any finished match, used to seed the all-time player count. */
+    addresses: () => [...byAddr].filter(([, p]) => p.wins + p.losses > 0).map(([a]) => a),
   };
 }
 
 export type Profiles = ReturnType<typeof createProfiles>;
+
+// Everyone who has ever started a match: signed-in players by wallet, guests by
+// a random id their browser keeps. One id per line in DATA_DIR/players.txt.
+export function createPlayerCount(dataDir: string, seed: () => string[]) {
+  const file = dataDir ? path.join(dataDir, "players.txt") : "";
+  const ids = new Set<string>();
+  try {
+    if (file && fs.existsSync(file)) for (const id of fs.readFileSync(file, "utf8").split("\n")) id && ids.add(id);
+    else for (const a of seed()) ids.add(a.toLowerCase());
+    if (file && !fs.existsSync(file) && ids.size) fs.writeFileSync(file, [...ids].join("\n") + "\n");
+  } catch (e) {
+    console.error("couldn't read players.txt:", (e as Error).message);
+  }
+  return {
+    get total() {
+      return ids.size;
+    },
+    add(list: string[]) {
+      const fresh = list.map((id) => id.toLowerCase()).filter((id) => !ids.has(id));
+      if (!fresh.length) return;
+      for (const id of fresh) ids.add(id);
+      if (file) fs.promises.appendFile(file, fresh.join("\n") + "\n").catch((e) => console.error("couldn't save players.txt:", e.message));
+    },
+  };
+}
