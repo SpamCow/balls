@@ -239,3 +239,5 @@ html { touch-action: manipulation; -webkit-text-size-adjust: 100%; }
 /* watching a full match: no controls, just the game */
 .pill.watching { background: var(--accent); color: #fff; }
 #match.spectating .stick, #match.spectating .dash-btn, #match.spectating .use-btn { display: none !important; }
+.check select { font: inherit; background: var(--panel-2); color: inherit; border: 1px solid var(--line); border-radius: 8px; padding: 2px 6px; margin-left: 4px; }
+@media (pointer: coarse) { .check select { font-size: 16px; } }

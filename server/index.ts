@@ -9,7 +9,7 @@ import { CHAINS, JOIN_WINDOW_SEC, TICKET_TTL_SEC, PRESET_BETS, MIN_BET_WEI, DEFA
 import { login, verifyToken } from "./auth";
 import { signerAddress, rpcUrl, signTicket, sweepDeployer, deployerClients, refundStale } from "./chain";
 import { loadEnv } from "./env";
-import { Room, type Config } from "./room";
+import { Room, type Config, type Variant } from "./room";
 import { ensureContract, type ContractStatus } from "./deploy";
 import { createPlayerCount, createProfiles } from "./profiles";
 import { syncFees } from "./fees";
@@ -37,6 +37,7 @@ const rooms = new Map<string, Room>();
 const currentTier = new Map<string, string>(); // tierId -> matchId
 let currentPractice = "";
 let currentBattle = "";
+let currentRace = "";
 
 // paid matches in play survive a restart only as "call it off": remember them on disk
 const activeFile = DATA_DIR ? path.join(DATA_DIR, "active-paid.json") : "";
@@ -116,11 +117,12 @@ function openMatches() {
     .map(({ s }) => ({ matchId: s.matchId, tierId: s.tierId, players: s.seats.length, maxPlayers: s.maxPlayers, entryFee: s.entryFee, variant: s.variant, names: s.names }));
 }
 
-function practiceRoom(battle: boolean) {
-  let room = rooms.get(battle ? currentBattle : currentPractice);
+function practiceRoom(variant: Variant) {
+  let room = rooms.get(variant === "race" ? currentRace : variant === "battle" ? currentBattle : currentPractice);
   if (!room || !room.joinable) {
-    room = makeRoom({ mode: "practice", variant: battle ? "battle" : "classic", matchId: `practice-${crypto.randomUUID()}`, maxPlayers: 4 });
-    if (battle) currentBattle = room.cfg.matchId;
+    room = makeRoom({ mode: "practice", variant, matchId: `practice-${crypto.randomUUID()}`, maxPlayers: 4 });
+    if (variant === "race") currentRace = room.cfg.matchId;
+    else if (variant === "battle") currentBattle = room.cfg.matchId;
     else currentPractice = room.cfg.matchId;
   }
   return room.cfg.matchId;
@@ -134,7 +136,7 @@ function friendsRoom() {
 
 // forget empty rooms after a while
 setInterval(() => {
-  const keep = new Set([...currentTier.values(), currentPractice, currentBattle]);
+  const keep = new Set([...currentTier.values(), currentPractice, currentBattle, currentRace]);
   for (const [id, r] of rooms) if (r.idle && !keep.has(id)) rooms.delete(id);
 }, 60_000).unref();
 
@@ -301,7 +303,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, r.status, r.body);
     }
     if (p === "/api/open") return sendJson(res, 200, openMatches());
-    if (p === "/api/practice" && req.method === "POST") return sendJson(res, 200, { roomId: practiceRoom(url.searchParams.get("battle") === "1") });
+    if (p === "/api/practice" && req.method === "POST") return sendJson(res, 200, { roomId: practiceRoom(url.searchParams.get("variant") === "race" ? "race" : url.searchParams.get("battle") === "1" ? "battle" : "classic") });
     if (p === "/api/friends" && req.method === "POST") return sendJson(res, 200, { roomId: friendsRoom() });
     const m = p.match(/^\/api\/match\/([^/]+)$/);
     if (m) {

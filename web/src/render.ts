@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { SNAP_STRIDE, RULES } from "../../shared/physics";
 import { BATTLE, WEAPONS, type BattleSnap } from "../../shared/battle";
 import { COLORS } from "../../shared/config";
+import { RACE, TRACK, gridSpot, type RaceSnap } from "../../shared/race";
 
 // shared by every spark so effects don't allocate GPU objects per hit
 const SPARK_GEO = new THREE.SphereGeometry(0.08, 6, 4);
@@ -28,7 +29,7 @@ function skinTexture(file: string) {
 
 type Fx = { mesh: THREE.Mesh; life: number; max: number; grow: number; fade: number };
 
-type Snap = { at: number; tick: number; arena: number; balls: { x: number; y: number; vx: number; vy: number; alive: boolean; dashIn: number }[]; b?: BattleSnap };
+type Snap = { at: number; tick: number; arena: number; balls: { x: number; y: number; vx: number; vy: number; alive: boolean; dashIn: number }[]; b?: BattleSnap; r?: RaceSnap };
 
 export const WEAPON_ICON = ["🔨", "⚡", "🧲", "🦔", "🚀", "💣"];
 export const WEAPON_NAME = ["Hammer", "Laser rifle", "Magnet", "Spike shell", "Homing rocket", "Mines"];
@@ -108,9 +109,15 @@ export class ArenaView {
   private skins: string[] = [];
   you: number | null = null;
   players = 0;
-  battle = false;
+  battle = false; // weapons on (battle and race)
+  race = false;
   // battle mode
   private arenaGroup = new THREE.Group();
+  private gear = new THREE.Group(); // crates, shots and mines (battle and race)
+  // race mode
+  private trackGroup = new THREE.Group();
+  private sun!: THREE.DirectionalLight;
+  private focus = new THREE.Vector3();
   private gone = new Set<number>(); // knocked out (popped, not fallen)
   private bars: { bg: THREE.Sprite; fill: THREE.Sprite; icon: THREE.Sprite }[] = [];
   private hammers: THREE.Group[] = [];
@@ -140,14 +147,14 @@ export class ArenaView {
     this.camera.lookAt(0, -1, 1);
 
     this.scene.add(new THREE.HemisphereLight("#b7c4ff", "#1a1030", 0.9));
-    const sun = new THREE.DirectionalLight("#ffffff", 2.2);
+    const sun = (this.sun = new THREE.DirectionalLight("#ffffff", 2.2));
     sun.position.set(-8, 20, 6);
     sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024);
     const sc = sun.shadow.camera as THREE.OrthographicCamera;
     sc.left = sc.bottom = -14;
     sc.right = sc.top = 14;
-    this.scene.add(sun);
+    this.scene.add(sun, sun.target);
 
     // platform: unit-radius cylinder scaled to the arena size each frame
     const top = new THREE.MeshStandardMaterial({ color: "#2a2f55", roughness: 0.55, metalness: 0.1 });
@@ -185,6 +192,7 @@ export class ArenaView {
     this.scene.add(this.marker);
 
     this.buildBattleArena();
+    this.buildTrack();
     addEventListener("resize", () => this.resize());
     this.resize();
   }
@@ -216,7 +224,9 @@ export class ArenaView {
     const crateMat = new THREE.MeshStandardMaterial({ color: "#ffb703", emissive: "#a35f00", emissiveIntensity: 0.6, roughness: 0.4 });
     const crateGeo = new THREE.BoxGeometry(1, 1, 1);
     const qMat = new THREE.SpriteMaterial({ map: iconTexture("❓"), depthWrite: false });
-    this.crates = new Pool(g, () => {
+    this.scene.add(this.gear);
+    this.gear.visible = false;
+    this.crates = new Pool(this.gear, () => {
       const m = new THREE.Mesh(crateGeo, crateMat);
       m.castShadow = true;
       const q = new THREE.Sprite(qMat);
@@ -232,7 +242,7 @@ export class ArenaView {
       core: new THREE.MeshBasicMaterial({ color: c }),
       glow: new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false }),
     }));
-    this.lasers = new Pool(g, () => {
+    this.lasers = new Pool(this.gear, () => {
       const m = new THREE.Mesh(laserGeo, this.laserMats[0].core);
       const glow = new THREE.Mesh(laserGeo, this.laserMats[0].glow);
       glow.scale.setScalar(2.2);
@@ -243,7 +253,7 @@ export class ArenaView {
     rocketGeo.rotateZ(-Math.PI / 2); // point along +x
     const rocketMat = new THREE.MeshStandardMaterial({ color: "#e5e5e5", emissive: "#ff5400", emissiveIntensity: 0.3 });
     const flameMat = new THREE.MeshBasicMaterial({ color: "#ffbe0b", transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending });
-    this.rockets = new Pool(g, () => {
+    this.rockets = new Pool(this.gear, () => {
       const m = new THREE.Mesh(rocketGeo, rocketMat);
       const flame = new THREE.Mesh(SPARK_GEO, flameMat);
       flame.scale.setScalar(3);
@@ -256,13 +266,83 @@ export class ArenaView {
     this.mineMats = COLORS.map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.5, emissive: c, emissiveIntensity: 0.25 }));
     const lightGeo = new THREE.SphereGeometry(0.12, 8, 6);
     const lightMat = new THREE.MeshBasicMaterial({ color: "#ffffff" });
-    this.mines = new Pool(g, () => {
+    this.mines = new Pool(this.gear, () => {
       const m = new THREE.Mesh(mineGeo, this.mineMats[0]);
       const light = new THREE.Mesh(lightGeo, lightMat);
       light.position.y = 0.15;
       m.add(light);
       return m;
     });
+  }
+
+  /** Race mode: the track as a ribbon along its centre line, with glowing edges and a chequered start line. */
+  private buildTrack() {
+    const g = this.trackGroup;
+    g.visible = false;
+    this.scene.add(g);
+    const N = TRACK.length;
+    const W = RACE.halfWidth;
+    // one strip of quads between two offsets from the centre line, at heights y0 (inner) and y1 (outer)
+    const strip = (o0: number, o1: number, y0: number, y1: number, mat: THREE.Material, every = 1, len = 1) => {
+      const pos: number[] = [];
+      const idx: number[] = [];
+      for (let i = 0; i < N; i += every) {
+        for (let j = 0; j <= len; j++) {
+          const p = TRACK[(i + j) % N];
+          const nx = -p.ty;
+          const ny = p.tx;
+          pos.push(p.x + nx * o0, y0, p.y + ny * o0, p.x + nx * o1, y1, p.y + ny * o1);
+        }
+        const base = (pos.length / 3) - (len + 1) * 2;
+        for (let j = 0; j < len; j++) {
+          const a = base + j * 2;
+          idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+        }
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      geo.setIndex(idx);
+      geo.computeVertexNormals();
+      const m = new THREE.Mesh(geo, mat);
+      g.add(m);
+      return m;
+    };
+    const top = new THREE.MeshStandardMaterial({ color: "#2a2f55", roughness: 0.55, metalness: 0.1, side: THREE.DoubleSide });
+    const side = new THREE.MeshStandardMaterial({ color: "#151834", roughness: 0.8, side: THREE.DoubleSide });
+    strip(-W, W, 0, 0, top, N, N).receiveShadow = true;
+    strip(W, W - 0.3, 0, -1.2, side, N, N);
+    strip(-W, -W + 0.3, 0, -1.2, side, N, N);
+    const edge = new THREE.MeshBasicMaterial({ color: "#ff3d7f", side: THREE.DoubleSide });
+    strip(W - 0.14, W + 0.02, 0.02, 0.02, edge, N, N);
+    strip(-W + 0.14, -W - 0.02, 0.02, 0.02, edge, N, N);
+    // centre dashes so speed reads well
+    strip(-0.08, 0.08, 0.015, 0.015, new THREE.MeshBasicMaterial({ color: "#3a4080", side: THREE.DoubleSide }), 8, 3);
+    // chequered start / finish line
+    const c = document.createElement("canvas");
+    c.width = 16;
+    c.height = 128;
+    const cx = c.getContext("2d")!;
+    for (let y = 0; y < 16; y++) for (let x = 0; x < 2; x++) {
+      cx.fillStyle = (x + y) % 2 ? "#111" : "#f5f5f5";
+      cx.fillRect(x * 8, y * 8, 8, 8);
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.magFilter = THREE.NearestFilter;
+    const line = new THREE.Mesh(new THREE.PlaneGeometry(1.2, W * 2), new THREE.MeshBasicMaterial({ map: tex }));
+    line.rotation.x = -Math.PI / 2;
+    const holder = new THREE.Group();
+    holder.add(line);
+    holder.position.set(TRACK[0].x, 0.02, TRACK[0].y);
+    holder.rotation.y = -Math.atan2(TRACK[0].ty, TRACK[0].tx);
+    g.add(holder);
+  }
+
+  /** Race standings from the newest snapshot: laps done (fractional) per seat. */
+  raceInfo(seat: number) {
+    const r = this.snaps[this.snaps.length - 1]?.r;
+    if (!r) return null;
+    const mine = r.p[seat] ?? 0;
+    return { lap: Math.min(RACE.laps, Math.max(1, Math.floor(mine) + 1)), laps: RACE.laps, place: 1 + r.p.filter((p, i) => i !== seat && p > mine).length, of: r.p.length };
   }
 
   /** Per-ball battle gear: HP bar, weapon icon, hammer, spikes, magnet ring. */
@@ -437,10 +517,13 @@ export class ArenaView {
     m.visible = false;
   }
 
-  setPlayers(n: number, you: number | null, battle = this.battle) {
+  setPlayers(n: number, you: number | null, battle = this.battle, race = false) {
     this.players = n;
     this.you = you;
-    this.battle = battle;
+    this.battle = battle || race;
+    this.race = race;
+    this.focus.set(0, 0, 0); // the race camera snaps to you on the next frame
+    battle = battle && !race; // from here on: the battle arena
     this.gone.clear();
     for (const b of this.balls) this.scene.remove(b);
     this.balls = [];
@@ -464,8 +547,11 @@ export class ArenaView {
     const r = battle ? BATTLE.arena : RULES.arenaStart;
     this.platform.scale.set(r, 1, r);
     this.rim.scale.set(r, r, 1);
-    this.rim.visible = !battle;
+    this.rim.visible = !battle && !race;
+    this.platform.visible = !race;
     this.arenaGroup.visible = battle;
+    this.gear.visible = battle || race;
+    this.trackGroup.visible = race;
     this.hole.scale.setScalar(BATTLE.hole);
     this.holeRim.scale.set(BATTLE.hole, BATTLE.hole, 1);
     if (battle)
@@ -473,6 +559,14 @@ export class ArenaView {
         const a = Math.atan2(m.position.z, m.position.x);
         m.position.set(Math.cos(a) * BATTLE.spawnRadius, RULES.ballRadius, Math.sin(a) * BATTLE.spawnRadius);
       });
+    if (race)
+      this.balls.forEach((m, i) => {
+        const g = gridSpot(i);
+        m.position.set(g.x, RULES.ballRadius, g.y);
+      });
+    const fog = this.scene.fog as THREE.Fog;
+    fog.near = (race ? 40 : 30) * this.zoom;
+    fog.far = (race ? 90 : 70) * this.zoom;
     this.buildFighters(n);
     this.applySkins();
   }
@@ -496,12 +590,12 @@ export class ArenaView {
     });
   }
 
-  pushSnapshot(d: number[], battle?: BattleSnap) {
+  pushSnapshot(d: number[], battle?: BattleSnap, race?: RaceSnap) {
     const balls = [];
     for (let i = 2; i + SNAP_STRIDE <= d.length; i += SNAP_STRIDE) {
       balls.push({ x: d[i], y: d[i + 1], vx: d[i + 2], vy: d[i + 3], alive: d[i + 4] === 1, dashIn: d[i + 5] });
     }
-    this.snaps.push({ at: performance.now(), tick: d[0], arena: d[1], balls, b: battle });
+    this.snaps.push({ at: performance.now(), tick: d[0], arena: d[1], balls, b: battle, r: race });
     if (this.snaps.length > 30) this.snaps.shift();
   }
 
@@ -586,6 +680,11 @@ export class ArenaView {
         if (!m) return;
         const ab = a.balls[i];
         if (this.gone.has(i)) return;
+        if (this.race && bb.alive && this.falling.has(i)) {
+          // race: back on the track after a fall
+          this.falling.delete(i);
+          m.position.set(bb.x, RULES.ballRadius, bb.y);
+        }
         if (!bb.alive && !this.falling.has(i) && !(ab?.alive ?? true)) {
           this.falling.set(i, { x: bb.x, z: bb.y, y: RULES.ballRadius, vx: bb.vx, vz: bb.vy, vy: 0 });
         }
@@ -601,6 +700,7 @@ export class ArenaView {
           const axis = new THREE.Vector3(dz, 0, -dx).normalize();
           m.rotateOnWorldAxis(axis, dist / RULES.ballRadius);
         }
+        if (b.r?.sp[i]) m.rotateY(dt * 25); // spun out
       });
     }
 
@@ -663,8 +763,30 @@ export class ArenaView {
     } else this.marker.visible = false;
 
     const z = this.zoom;
+    if (this.race) {
+      // follow your ball (or the leader when watching), without turning, so the controls stay screen-relative
+      let seat = this.you;
+      const r = b?.r;
+      if ((seat === null || !this.balls[seat]) && r) seat = r.p.indexOf(Math.max(...r.p));
+      const m = seat !== null ? this.balls[seat] : null;
+      if (m) {
+        // look a little ahead of where it's heading, so the bends come into view sooner
+        const v = b?.balls[seat!];
+        const want = new THREE.Vector3(m.position.x + (v?.vx ?? 0) * 0.5, 0, m.position.z + (v?.vy ?? 0) * 0.5);
+        if (this.falling.has(seat!)) want.copy(this.focus); // hold still while it drops
+        this.focus.lerp(want, this.focus.lengthSq() === 0 ? 1 : Math.min(1, dt * 4));
+      }
+      const f = this.focus;
+      this.camera.position.set(f.x, 19 * z, f.z + 15 * z);
+      this.camera.lookAt(f.x, -1, f.z + 1);
+      this.sun.position.set(f.x - 8, 20, f.z + 6);
+      this.sun.target.position.copy(f);
+      return;
+    }
     this.camera.position.set(0, 21 * z, 17 * z);
     this.camera.lookAt(0, -1, 1);
+    this.sun.position.set(-8, 20, 6);
+    this.sun.target.position.set(0, 0, 0);
   }
 
   private resize() {
@@ -675,8 +797,8 @@ export class ArenaView {
     // pull the camera back on narrow screens so the whole arena stays in view
     this.zoom = Math.max(1, 1.2 / this.camera.aspect);
     const fog = this.scene.fog as THREE.Fog;
-    fog.near = 30 * this.zoom;
-    fog.far = 70 * this.zoom;
+    fog.near = (this.race ? 40 : 30) * this.zoom;
+    fog.far = (this.race ? 90 : 70) * this.zoom;
     this.camera.updateProjectionMatrix();
   }
 }

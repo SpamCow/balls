@@ -27,6 +27,7 @@
           <button id="friends-btn" class="btn big-btn">Play with friends</button>
           <button id="practice-btn" class="btn big-btn ghost">Quick game vs bots</button>
           <button id="battle-btn" class="btn big-btn ghost">Battle vs bots</button>
+          <button id="race-btn" class="btn big-btn ghost">Race vs bots</button>
         </div>
         <div class="join-row">
           <label class="field"><span>Your name</span><input id="nick" maxlength="16" placeholder="Player" autocomplete="nickname" /></label>
@@ -103,7 +104,7 @@
         <div id="friends-bar" class="friends-bar" hidden>
           <button id="copy-invite" class="btn ghost small">Copy invite link</button>
           <label id="bots-label" class="check"><input type="checkbox" id="bots" checked /> Fill empty seats with bots</label>
-          <label id="battle-label" class="check"><input type="checkbox" id="battle" /> Battle mode</label>
+          <label id="battle-label" class="check">Mode <select id="variant"><option value="classic">Classic</option><option value="battle">Battle</option><option value="race">Race</option></select></label>
           <button id="start-btn" class="btn small">Start</button>
         </div>
         <div id="status" class="status"></div>

@@ -1,4 +1,5 @@
 import type { Battle, BattleEvent } from "./battle";
+import type { Race } from "./race";
 
 // Deterministic Bumper Balls simulation. Runs only on the game server; clients
 // send inputs and render the snapshots they receive.
@@ -48,7 +49,8 @@ export type Sim = {
   over: boolean;
   winnerSeat: number | null; // null with over=true means no winner (refund)
   events: SimEvent[];
-  battle?: Battle; // set in battle mode (see battle.ts)
+  battle?: Battle; // set in battle and race mode (see battle.ts)
+  race?: Race; // set in race mode (see race.ts)
 };
 
 // da/db: whether ball a/b was mid-dash when they hit (both = a clash)
@@ -56,6 +58,7 @@ export type SimEvent =
   | { t: "bump"; a: number; b: number; force: number; da?: 1; db?: 1 }
   | { t: "out"; seat: number; cause?: "hole" | "ko" }
   | { t: "dash"; seat: number }
+  | { t: "fall" | "back" | "spin"; seat: number } // race: off the track, back on it, spun out
   | BattleEvent;
 
 export function createSim(players: number): Sim {

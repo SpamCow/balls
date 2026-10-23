@@ -5,7 +5,7 @@
 // settings are put in the same match.
 import { formatEther } from "viem";
 
-export type Variant = "classic" | "battle";
+export type Variant = "classic" | "battle" | "race";
 export type Tier = { id: string; label: string; entryFeeWei: string; maxPlayers: number; variant: Variant };
 
 export const PRESET_BETS = ["0.001", "0.01", "0.1"];

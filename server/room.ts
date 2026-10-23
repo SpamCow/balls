@@ -5,6 +5,7 @@ import { getAddress, zeroAddress, type Address, type Hex } from "viem";
 import type { WebSocket } from "ws";
 import { createSim, step, setInput, cleanInput, snapshot, botInput, TICK_HZ, type Sim } from "../shared/physics";
 import { createBattleSim, stepBattle, battleSnapshot, battleBotInput } from "../shared/battle";
+import { createRaceSim, stepRace, raceSnapshot, raceBotInput } from "../shared/race";
 import { COUNTDOWN_SEC } from "../shared/config";
 import { MatchStatus } from "../shared/eip712";
 import { readMatch, settleMatch, signResult } from "./chain";
@@ -181,7 +182,7 @@ export class Room {
       this.pollChain().then(() => this.send(c, { t: "seats", you: this.seatOf(c), ...this.publicState() }));
     } else if (msg?.t === "begin" && this.cfg.mode === "friends" && this.seatOf(c) === this.hostSeat) {
       if (this.phase === "waiting" || this.phase === "over") {
-        this.variant = msg.battle === true ? "battle" : "classic";
+        this.variant = msg.variant === "race" || msg.variant === "battle" ? msg.variant : msg.battle === true ? "battle" : "classic";
         this.resetForRound(msg.bots !== false);
       }
     } else if (msg?.t === "ping") {
@@ -322,8 +323,9 @@ export class Room {
       }
     }
     this.round++;
+    const race = this.variant === "race";
     const battle = this.variant === "battle";
-    this.sim = battle ? createBattleSim(n) : createSim(n);
+    this.sim = race ? createRaceSim(n) : battle ? createBattleSim(n) : createSim(n);
     this.phase = "playing";
     this.persist.played([
       ...this.seats.flatMap((s, i) => (s && !s.startsWith("guest:") && !this.bots.has(i) ? [s] : [])),
@@ -335,11 +337,18 @@ export class Room {
     let ticks = 0;
     this.loop = setInterval(() => {
       const sim = this.sim!;
-      for (const b of this.bots) setInput(sim, b, battle ? battleBotInput(sim, b, BOT_LEVEL) : botInput(sim, b, BOT_LEVEL));
-      if (battle) stepBattle(sim);
+      for (const b of this.bots) setInput(sim, b, race ? raceBotInput(sim, b, BOT_LEVEL) : battle ? battleBotInput(sim, b, BOT_LEVEL) : botInput(sim, b, BOT_LEVEL));
+      if (race) stepRace(sim);
+      else if (battle) stepBattle(sim);
       else step(sim);
       if (sim.events.length) this.broadcast({ t: "ev", e: sim.events });
-      if (++ticks % 2 === 0 || sim.over) this.broadcast(battle ? { t: "s", d: snapshot(sim), b: battleSnapshot(sim) } : { t: "s", d: snapshot(sim) });
+      if (++ticks % 2 === 0 || sim.over) this.broadcast(
+          race
+            ? { t: "s", d: snapshot(sim), b: battleSnapshot(sim), r: raceSnapshot(sim) }
+            : battle
+              ? { t: "s", d: snapshot(sim), b: battleSnapshot(sim) }
+              : { t: "s", d: snapshot(sim) },
+        );
       if (sim.over) {
         clearInterval(this.loop!);
         this.loop = null;

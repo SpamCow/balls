@@ -26,7 +26,7 @@ type Config = {
 
 type RoomState = {
   mode: "paid" | "practice" | "friends";
-  variant?: "classic" | "battle";
+  variant?: "classic" | "battle" | "race";
   code?: string;
   names: string[];
   skins?: string[];
@@ -630,8 +630,8 @@ async function joinPaid(tier: Tier, stale?: string): Promise<void> {
   }
 }
 
-async function joinPractice(battle = false) {
-  const r = await fetch(`/api/practice${battle ? "?battle=1" : ""}`, { method: "POST" });
+async function joinPractice(variant: Variant = "classic") {
+  const r = await fetch(`/api/practice?variant=${variant}${variant === "battle" ? "&battle=1" : ""}`, { method: "POST" });
   const { roomId } = await r.json();
   openRoom(roomId);
 }
@@ -751,6 +751,22 @@ function sendInput() {
   const d = view.dashReadyIn(room.you);
   renderDash(d);
   renderWeapon();
+  renderLap();
+}
+
+/** Race mode: lap and place, in the pill at the top while racing. */
+const PLACE = ["1st", "2nd", "3rd", "4th"];
+let lastLap = "";
+let lastLapNum = 0;
+function renderLap() {
+  const info = room?.variant === "race" && room.phase === "playing" && room.you !== null ? view.raceInfo(room.you) : null;
+  if (!info) return;
+  const text = `Lap ${info.lap}/${info.laps} · ${PLACE[info.place - 1] ?? `${info.place}th`} of ${info.of}`;
+  if (lastLapNum && info.lap > lastLapNum) toast(info.lap === info.laps ? "Final lap!" : `Lap ${info.lap}`, "ok");
+  lastLapNum = info.lap;
+  if (text === lastLap) return;
+  lastLap = text;
+  $("#pot").textContent = text;
 }
 
 /** The dash meter fills while the dash recharges, then lights up when it's ready again. */
@@ -771,7 +787,7 @@ function renderDash(ticks: number) {
 /** Battle mode: what you're holding, under the dash meter (and on the phone weapon button). */
 let lastWeapon = "";
 function renderWeapon() {
-  const f = room?.variant === "battle" && room.you !== null && room.phase === "playing" ? view.fighter(room.you) : null;
+  const f = (room?.variant === "battle" || room?.variant === "race") && room.you !== null && room.phase === "playing" ? view.fighter(room.you) : null;
   const slot = $("#weapon");
   const btn = $(".use-btn");
   slot.hidden = btn.hidden = $("#my-hp").hidden = !f;
@@ -857,7 +873,8 @@ function onRoomMessage(msg: any) {
       const n = playerCount(room);
       const inRound = room.phase === "playing" || room.phase === "countdown" || room.phase === "over";
       const battle = room.variant === "battle";
-      if ((view.players !== n || view.battle !== battle) && !(room.mode === "friends" && inRound)) view.setPlayers(n, room.you, battle);
+      const race = room.variant === "race";
+      if ((view.players !== n || view.battle !== (battle || race) || view.race !== race) && !(room.mode === "friends" && inRound)) view.setPlayers(n, room.you, battle, race);
       view.you = room.you;
       view.setSkins(room.skins ?? []);
       renderSeats();
@@ -874,9 +891,9 @@ function onRoomMessage(msg: any) {
       break;
     case "s": {
       const n = Math.floor((msg.d.length - 2) / SNAP_STRIDE);
-      if (resetView || view.players !== n || view.battle !== !!msg.b) view.setPlayers(n, room?.you ?? null, !!msg.b);
+      if (resetView || view.players !== n || view.battle !== !!msg.b || view.race !== !!msg.r) view.setPlayers(n, room?.you ?? null, !!msg.b, !!msg.r);
       resetView = false;
-      view.pushSnapshot(msg.d, msg.b);
+      view.pushSnapshot(msg.d, msg.b, msg.r);
       break;
     }
     case "ev":
@@ -906,6 +923,15 @@ function onRoomMessage(msg: any) {
             sfx.fall(me);
             toast(me ? (e.cause === "hole" ? "You fell in the hole!" : "You fell off!") : `${name} ${e.cause === "hole" ? "fell in the hole" : "fell off"}`);
           }
+        }
+        if (e.t === "fall" && room) {
+          const me = e.seat === room.you;
+          sfx.fall(me);
+          if (me) toast("You fell off! Back on in a second.");
+        }
+        if (e.t === "spin" && room) {
+          sfx.pop(e.seat === room.you);
+          if (e.seat === room.you) toast("You spun out!");
         }
         if (e.t === "hit") {
           view.hit(e.x, e.y, e.dmg);
@@ -966,17 +992,20 @@ function renderSeats() {
   el.innerHTML = html;
   $("#pot").textContent =
     room.mode === "paid" && room.entryFee
-      ? `${room.variant === "battle" ? "Battle · " : ""}Pot ${eth(BigInt(room.entryFee) * BigInt(room.maxPlayers))}`
+      ? `${room.variant === "battle" ? "Battle · " : room.variant === "race" ? "Race · " : ""}Pot ${eth(BigInt(room.entryFee) * BigInt(room.maxPlayers))}`
       : room.mode === "friends"
-        ? `Room ${room.code?.toUpperCase()} · ${room.variant === "battle" ? "battle · " : ""}free`
+        ? `Room ${room.code?.toUpperCase()} · ${room.variant === "classic" || !room.variant ? "" : `${room.variant} · `}free`
         : room.variant === "battle"
           ? "Battle · free"
+          : room.variant === "race"
+            ? "Race · free"
           : "Practice · free";
   const isHost = room.mode === "friends" && room.you !== null && room.you === room.host;
   $("#friends-bar").hidden = room.mode !== "friends" || room.phase === "playing" || room.phase === "countdown";
   $("#start-btn").hidden = !isHost;
   $("#bots-label").hidden = !isHost;
   $("#battle-label").hidden = !isHost;
+  if (!isHost && room.variant) $<HTMLSelectElement>("#variant").value = room.variant;
 }
 
 function helpCount(set?: number): number {
@@ -999,7 +1028,9 @@ function renderPhase() {
   $("#controls-hint").hidden = watching || (room.phase !== "countdown" && room.phase !== "playing");
   $("#dash-meter").hidden = room.phase !== "playing" || room.you === null;
   const battle = room.variant === "battle";
-  $("#controls-hint").textContent = battle ? "WASD - move · Space - dash · E - use weapon" : "WASD - move · Space - dash";
+  const race = room.variant === "race";
+  if (room.phase !== "playing") lastLap = "", (lastLapNum = 0);
+  $("#controls-hint").textContent = battle || race ? "WASD - move · Space - dash · E - use weapon" : "WASD - move · Space - dash";
   // battle how-to: shown through the countdown and the first seconds of play, for a player's first few battles
   const help = $("#battle-help");
   if (matchMedia("(pointer: coarse)").matches) $(".use-key").textContent = "❓";
@@ -1038,7 +1069,7 @@ function renderPhase() {
       const s = Math.ceil((room!.startsAt - Date.now()) / 1000);
       if (s > 0 && s !== lastBeep) sfx.tick();
       lastBeep = s;
-      setStatus(s > 0 ? `<span class="big">${s}</span>${room!.you === null ? "Spectating" : battle ? "Get ready! Grab crates, smash everyone, mind the hole." : "Get ready! Knock everyone off."}` : "");
+      setStatus(s > 0 ? `<span class="big">${s}</span>${room!.you === null ? "Spectating" : race ? "Get ready! 3 laps. Drive through ❓ boxes for weapons." : battle ? "Get ready! Grab crates, smash everyone, mind the hole." : "Get ready! Knock everyone off."}` : "");
     };
     tick();
     countdownTimer = setInterval(tick, 200);
@@ -1211,7 +1242,7 @@ function showResult() {
   if (room.mode === "friends" && !isHost) html += `<p class="muted">Waiting for the host to start the next round.</p>`;
   html += `<div class="acts">${isHost ? `<button class="btn" id="rematch">Play again</button>` : ""}<button class="btn ghost" id="again">${room.mode === "practice" ? "Play again" : "Back to lobby"}</button></div>`;
   el.innerHTML = html;
-  $("#again").onclick = () => (room?.mode === "practice" ? joinPractice(room.variant === "battle") : leaveRoom());
+  $("#again").onclick = () => (room?.mode === "practice" ? joinPractice(room.variant) : leaveRoom());
   $("#rematch")?.addEventListener("click", beginFriends);
   $("#claim")?.addEventListener("click", claim);
 }
@@ -1240,7 +1271,7 @@ async function claim() {
 }
 
 function beginFriends() {
-  if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ t: "begin", bots: $<HTMLInputElement>("#bots").checked, battle: $<HTMLInputElement>("#battle").checked }));
+  if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ t: "begin", bots: $<HTMLInputElement>("#bots").checked, variant: $<HTMLSelectElement>("#variant").value }));
 }
 
 // --------------------------------------------------------------------- boot
@@ -1319,7 +1350,8 @@ async function boot() {
     const t = pickedTier();
     if (typeof t !== "string") joinPaid(t);
   };
-  $("#battle-btn").onclick = () => joinPractice(true);
+  $("#battle-btn").onclick = () => joinPractice("battle");
+  $("#race-btn").onclick = () => joinPractice("race");
   $("#friends-btn").onclick = createFriends;
   $("#start-btn").onclick = beginFriends;
   $("#join-form").addEventListener("submit", (e) => {

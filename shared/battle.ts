@@ -57,6 +57,10 @@ export type Battle = {
   mines: (P & { arm: number; die: number })[];
   nextCrate: number;
   nextId: number;
+  // race mode swaps in its own aiming and its own idea of where shots can fly (see race.ts)
+  aim?: (sim: Sim, b: Ball) => { x: number; y: number };
+  rocketTarget?: (sim: Sim, owner: number, at: { x: number; y: number }) => Ball | null;
+  onTrack?: (x: number, y: number) => boolean;
 };
 
 type HitKind = "bump" | "hammer" | "laser" | "magnet" | "rocket" | "mine";
@@ -98,7 +102,7 @@ export function holeAt(tick: number) {
   return BATTLE.hole + (BATTLE.holeMax - BATTLE.hole) * k;
 }
 
-function hurt(sim: Sim, victim: Ball, dmg: number, k: HitKind, at: { x: number; y: number } = victim) {
+export function hurt(sim: Sim, victim: Ball, dmg: number, k: HitKind, at: { x: number; y: number } = victim) {
   const f = sim.battle!.f[victim.seat];
   dmg = Math.min(BATTLE.maxHit, dmg);
   if (dmg < 0.5 || !victim.alive) return;
@@ -106,20 +110,21 @@ function hurt(sim: Sim, victim: Ball, dmg: number, k: HitKind, at: { x: number; 
   sim.events.push({ t: "hit", seat: victim.seat, dmg: Math.round(dmg), x: r1(at.x), y: r1(at.y), k });
 }
 
-function push(b: Ball, nx: number, ny: number, speed: number) {
+export function push(b: Ball, nx: number, ny: number, speed: number) {
   const len = Math.hypot(nx, ny) || 1;
   b.vx += (nx / len) * speed;
   b.vy += (ny / len) * speed;
 }
 
 /** The nearest living rival to a point, or null. */
-function nearestFoe(sim: Sim, seat: number, from: { x: number; y: number }) {
+export function nearestFoe(sim: Sim, seat: number, from: { x: number; y: number }) {
   let best: Ball | null = null;
   for (const o of sim.balls) if (o.alive && o.seat !== seat && (!best || dist(o, from) < dist(best, from))) best = o;
   return best;
 }
 
 function aimAt(sim: Sim, b: Ball) {
+  if (sim.battle!.aim) return sim.battle!.aim(sim, b);
   const t = nearestFoe(sim, b.seat, b);
   let dx = t ? t.x - b.x : b.vx;
   let dy = t ? t.y - b.y : b.vy;
@@ -128,7 +133,7 @@ function aimAt(sim: Sim, b: Ball) {
   return { x: dx / len, y: dy / len };
 }
 
-const AMMO: Record<Weapon, number> = { hammer: 0, laser: BATTLE.laser.shots, magnet: 0, spikes: 0, rocket: 1, mine: BATTLE.mine.charges };
+export const AMMO: Record<Weapon, number> = { hammer: 0, laser: BATTLE.laser.shots, magnet: 0, spikes: 0, rocket: 1, mine: BATTLE.mine.charges };
 const TIMED: Partial<Record<Weapon, number>> = { hammer: BATTLE.hammer.sec, magnet: BATTLE.magnet.sec, spikes: BATTLE.spikes.sec };
 
 /** Is this ball's timed weapon (hammer, magnet, spikes) running? */
@@ -137,7 +142,7 @@ export function activeWeapon(sim: Sim, seat: number): Weapon | null {
   return f && f.weapon && f.until > sim.tick ? f.weapon : null;
 }
 
-function useWeapon(sim: Sim, b: Ball, f: Fighter) {
+export function useWeapon(sim: Sim, b: Ball, f: Fighter) {
   const B = sim.battle!;
   const w = f.weapon;
   if (!w || f.until > 0 || sim.tick < f.readyAt) return;
@@ -170,7 +175,7 @@ function useWeapon(sim: Sim, b: Ball, f: Fighter) {
 }
 
 /** Timed weapons while they run: the hammer swings, the magnet pulls. */
-function runWeapon(sim: Sim, b: Ball, f: Fighter) {
+export function runWeapon(sim: Sim, b: Ball, f: Fighter) {
   const B = sim.battle!;
   const w = f.weapon;
   if (!w || !f.until) return;
@@ -239,7 +244,7 @@ function explode(sim: Sim, owner: number, x: number, y: number) {
   sim.events.push({ t: "boom", x: r1(x), y: r1(y), r: R.blast });
 }
 
-function projectiles(sim: Sim) {
+export function projectiles(sim: Sim) {
   const B = sim.battle!;
   const wallR = (r: number) => BATTLE.arena - r;
 
@@ -247,7 +252,9 @@ function projectiles(sim: Sim) {
     l.x += l.vx * DT;
     l.y += l.vy * DT;
     const r = Math.hypot(l.x, l.y);
-    if (r > wallR(BATTLE.laser.r)) {
+    if (B.onTrack) {
+      if (!B.onTrack(l.x, l.y)) return false; // race: a shot that leaves the track is gone
+    } else if (r > wallR(BATTLE.laser.r)) {
       // bounces off the wall twice, gone on the third hit
       if (++l.n > BATTLE.laser.bounces) return false;
       const nx = l.x / r;
@@ -270,7 +277,7 @@ function projectiles(sim: Sim) {
 
   B.rockets = B.rockets.filter((m) => {
     const R = BATTLE.rocket;
-    const t = nearestFoe(sim, m.o, m);
+    const t = B.rocketTarget ? B.rocketTarget(sim, m.o, m) : nearestFoe(sim, m.o, m);
     if (t) {
       // turn toward the nearest rival, at most R.turn rad/s
       const cur = Math.atan2(m.vy, m.vx);
@@ -284,7 +291,7 @@ function projectiles(sim: Sim) {
     m.x += m.vx * DT;
     m.y += m.vy * DT;
     const hit = sim.balls.some((o) => o.alive && o.seat !== m.o && dist(o, m) < RULES.ballRadius + R.r);
-    if (hit || Math.hypot(m.x, m.y) > wallR(R.r) || sim.tick >= m.die) {
+    if (hit || (!B.onTrack && Math.hypot(m.x, m.y) > wallR(R.r)) || sim.tick >= m.die) {
       explode(sim, m.o, m.x, m.y);
       return false;
     }
