@@ -30,7 +30,7 @@ function skinTexture(file: string) {
 
 // arena models, in their own units: classic is scaled so its floor edge (edge) sits on the shrinking
 // rim; battle so its centre hole (hole) is where balls drop in. floor = height of the playing surface
-const STARLIGHT = { edge: 93, floor: 23.5 };
+const STARLIGHT = { edge: 94, floor: 21.7 };
 const BATTLE_ARENA = { hole: 15.2, floor: 19.5 };
 
 type Fx = { mesh: THREE.Mesh; life: number; max: number; grow: number; fade: number };
@@ -319,7 +319,7 @@ export class ArenaView {
     if (m) {
       m.visible = classic;
       if (classic) {
-        // the model's floor edge sits 93 units out and its floor 23.5 up: line both up with the game's edge and y = 0
+        // the model's outer rim sits 94 units out and its floor 21.7 up: line both up with the game's edge and y = 0
         const k = r / STARLIGHT.edge;
         m.scale.setScalar(k);
         m.position.y = -STARLIGHT.floor * k;
