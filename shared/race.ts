@@ -120,7 +120,9 @@ export function createRaceSim(players: number): Sim {
   B.crates = boxes.map(({ id, x, y }) => ({ id, x, y }));
   B.onTrack = onTrack;
   B.aim = raceAim;
-  B.rocketTarget = (s, owner, at) => racerAhead(s, owner) ?? nearestFoe(s, owner, at);
+  // rockets go straight for the nearest rival (in front or behind), fast enough to catch a racer
+  B.rocketTarget = (s, owner, at) => nearestFoe(s, owner, at);
+  B.rocket = { speed: 16, turn: 6 };
   return sim;
 }
 
@@ -305,7 +307,8 @@ export function raceBotInput(sim: Sim, seat: number, level = 0.8): Input {
     const w = f.weapon;
     const p = Math.random();
     const behind = sim.balls.some((o) => o.alive && o.seat !== seat && dist(o, me) < 10 && ahead(o) < -1);
-    if (w === "laser" || w === "rocket") use = (racerAhead(sim, seat) !== null || foeD < 15) && p < 0.12;
+    if (w === "rocket") use = foeD < 20 && p < 0.12;
+    else if (w === "laser") use = (racerAhead(sim, seat) !== null || foeD < 15) && p < 0.12;
     else if (w === "mine") use = behind ? p < 0.15 : p < 0.01;
     else use = foeD < 6 && p < 0.25;
   }

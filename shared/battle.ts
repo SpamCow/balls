@@ -53,13 +53,14 @@ export type Battle = {
   hole: number;
   crates: { id: number; x: number; y: number }[];
   lasers: (P & { vx: number; vy: number; n: number })[]; // n = wall hits so far
-  rockets: (P & { vx: number; vy: number; die: number })[];
+  rockets: (P & { vx: number; vy: number; die: number; t?: number })[]; // t: the seat it's locked onto (race)
   mines: (P & { arm: number; die: number })[];
   nextCrate: number;
   nextId: number;
   // race mode swaps in its own aiming and its own idea of where shots can fly (see race.ts)
   aim?: (sim: Sim, b: Ball) => { x: number; y: number };
-  rocketTarget?: (sim: Sim, owner: number, at: { x: number; y: number }) => Ball | null;
+  rocketTarget?: (sim: Sim, owner: number, at: { x: number; y: number }) => Ball | null; // set: rockets launch straight at it and stay locked on
+  rocket?: { speed: number; turn: number };
   onTrack?: (x: number, y: number) => boolean;
 };
 
@@ -159,8 +160,14 @@ export function useWeapon(sim: Sim, b: Ball, f: Fighter) {
     B.lasers.push({ id, o: b.seat, x: b.x + d.x * 1.4, y: b.y + d.y * 1.4, vx: d.x * BATTLE.laser.speed, vy: d.y * BATTLE.laser.speed, n: 0 });
     f.readyAt = sim.tick + sec(BATTLE.laser.cd);
   } else if (w === "rocket") {
-    const d = aimAt(sim, b);
-    B.rockets.push({ id, o: b.seat, x: b.x + d.x * 1.5, y: b.y + d.y * 1.5, vx: d.x * BATTLE.rocket.speed, vy: d.y * BATTLE.rocket.speed, die: sim.tick + sec(BATTLE.rocket.life) });
+    const lock = B.rocketTarget?.(sim, b.seat, b) ?? null;
+    let d = aimAt(sim, b);
+    if (lock) {
+      const len = dist(lock, b) || 1;
+      d = { x: (lock.x - b.x) / len, y: (lock.y - b.y) / len };
+    }
+    const speed = B.rocket?.speed ?? BATTLE.rocket.speed;
+    B.rockets.push({ id, o: b.seat, x: b.x + d.x * 1.5, y: b.y + d.y * 1.5, vx: d.x * speed, vy: d.y * speed, die: sim.tick + sec(BATTLE.rocket.life), t: lock?.seat });
   } else if (w === "mine") {
     // dropped just behind you
     const sp = Math.hypot(b.vx, b.vy);
@@ -276,8 +283,9 @@ export function projectiles(sim: Sim) {
   });
 
   B.rockets = B.rockets.filter((m) => {
-    const R = BATTLE.rocket;
-    const t = B.rocketTarget ? B.rocketTarget(sim, m.o, m) : nearestFoe(sim, m.o, m);
+    const R = { ...BATTLE.rocket, ...B.rocket };
+    const locked = m.t !== undefined ? sim.balls[m.t] : undefined;
+    const t = locked?.alive ? locked : B.rocketTarget ? B.rocketTarget(sim, m.o, m) : nearestFoe(sim, m.o, m);
     if (t) {
       // turn toward the nearest rival, at most R.turn rad/s
       const cur = Math.atan2(m.vy, m.vx);
