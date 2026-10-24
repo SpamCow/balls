@@ -1,4 +1,5 @@
-// Privy sign-in: email or Google creates a built-in wallet for the player.
+// Privy sign-in: email or Google creates a built-in wallet for the player; or they
+// connect their own wallet (MetaMask, Rabby, Coinbase, WalletConnect…) and play from it.
 // Loaded only when the server has a PRIVY_APP_ID, so the rest of the site
 // stays plain TypeScript.
 import { createElement, useEffect } from "react";
@@ -17,7 +18,7 @@ export type PrivyState = {
 
 export type PrivyApi = { login: () => void; logout: () => Promise<void> };
 
-export function mountPrivy(appId: string, chain: Chain, onChange: (s: PrivyState) => void): Promise<PrivyApi> {
+export function mountPrivy(appId: string, chain: Chain, onChange: (s: PrivyState) => void, walletConnectProjectId?: string | null): Promise<PrivyApi> {
   return new Promise((resolve, reject) => {
     let lastKey = "";
     let done = false;
@@ -52,7 +53,8 @@ export function mountPrivy(appId: string, chain: Chain, onChange: (s: PrivyState
         if (!ready || !walletsReady) return;
         const linked = new Set((user?.linkedAccounts ?? []).flatMap((a: any) => (a.type === "wallet" && a.address ? [a.address.toLowerCase()] : [])));
         const mine = wallets.filter((w) => linked.has(w.address.toLowerCase()));
-        const w: ConnectedWallet | undefined = mine.find((x) => x.walletClientType === "privy");
+        // the built-in wallet if they have one, otherwise the wallet they signed in with
+        const w: ConnectedWallet | undefined = mine.find((x) => x.walletClientType === "privy") ?? mine[0];
         const label = user?.email?.address ?? user?.google?.email ?? null;
         const key = `${authenticated}|${w?.address}|${label}`;
         if (key === lastKey) return;
@@ -74,9 +76,17 @@ export function mountPrivy(appId: string, chain: Chain, onChange: (s: PrivyState
         {
           appId,
           config: {
-            loginMethods: ["email", "google"],
-            appearance: { theme: "dark", accentColor: "#ff3d7f", landingHeader: "Sign in to play", walletChainType: "ethereum-only" },
-            embeddedWallets: { ethereum: { createOnLogin: "all-users" }, showWalletUIs: true },
+            loginMethods: ["email", "google", "wallet"],
+            appearance: {
+              theme: "dark",
+              accentColor: "#ff3d7f",
+              landingHeader: "Sign in to play",
+              walletChainType: "ethereum-only",
+              walletList: ["detected_ethereum_wallets", "metamask", "coinbase_wallet", "rainbow", "wallet_connect"],
+            },
+            // email and Google players get a built-in wallet; people who connect their own play from that
+            embeddedWallets: { ethereum: { createOnLogin: "users-without-wallets" }, showWalletUIs: true },
+            ...(walletConnectProjectId ? { walletConnectCloudProjectId: walletConnectProjectId } : {}),
             defaultChain: chain,
             supportedChains: [chain],
           },

@@ -304,6 +304,10 @@ let lastBal: bigint | null = null;
 async function refreshAccount(need?: bigint) {
   if (!account) return;
   $("#acct-label").textContent = privyState?.label ?? "Your wallet";
+  // a wallet they brought pays and gets paid directly; the deposit and cash-out tools are for the built-in one
+  const own = !!privyState && !privyState.builtIn;
+  $("#own-wallet-note").hidden = !own;
+  $("#acct-funds").hidden = own;
   renderProfile();
   $("#acct-addr").textContent = account;
   $("#acct-chain").textContent = cfg.chainName ?? `chain ${cfg.chainId}`;
@@ -315,7 +319,9 @@ async function refreshAccount(need?: bigint) {
     if (lastBal !== null && bal > lastBal) sfx.coin(); // a deposit just landed
     lastBal = bal;
     $("#acct-bal").textContent = eth(bal);
-    if (need && bal < need) needEl.textContent = `You need ${eth(need - bal)} more for that match. Send it to the address below and it shows up here in a few seconds.`;
+    if (need && bal < need) needEl.textContent = own
+        ? `You need ${eth(need - bal)} more ETH on ${cfg.chainName ?? "this network"} in this wallet for that match.`
+        : `You need ${eth(need - bal)} more for that match. Send it to the address below and it shows up here in a few seconds.`;
     else needEl.hidden = true;
   } catch {
     $("#acct-bal").textContent = "…";
@@ -1313,7 +1319,7 @@ async function boot() {
   $("#wallet-btn").onclick = openWalletPicker;
   if (cfg.privyAppId) {
     import("./privy")
-      .then((m) => m.mountPrivy(cfg.privyAppId!, chain, onPrivy))
+      .then((m) => m.mountPrivy(cfg.privyAppId!, chain, onPrivy, cfg.walletConnectProjectId))
       .then((api) => (privy = api))
       .catch((e) => {
         privyProblem = errMsg(e);

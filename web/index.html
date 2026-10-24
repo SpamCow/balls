@@ -136,6 +136,8 @@
       <div class="stats"><div><b id="st-wins">0</b><span>Wins</span></div><div><b id="st-losses">0</b><span>Losses</span></div><div><b id="st-rate">–</b><span>Win rate</span></div><div><b id="st-earned">0</b><span>ETH won</span></div></div>
       <div class="acct-bal"><span class="muted small">Balance</span><b id="acct-bal">…</b></div>
       <p id="acct-need" class="note" hidden></p>
+      <p id="own-wallet-note" class="note" hidden>This is your own wallet. Entry fees come straight from it and prizes go straight back to it, so there's nothing to deposit or cash out here.</p>
+      <div id="acct-funds">
       <h4>Add ETH</h4>
       <p class="muted small">Send ETH on <b id="acct-chain">Robinhood Chain</b> to your game wallet. From Robinhood, choose Robinhood Chain as the network. Sending on any other network loses it.</p>
       <div class="addr-row"><code id="acct-addr" class="mono"></code><button type="button" id="acct-copy" class="btn small">Copy</button></div>
@@ -144,6 +146,7 @@
         <input id="out-to" placeholder="Send to address (0x…)" autocomplete="off" spellcheck="false" required />
         <div class="inline"><input id="out-amt" placeholder="Amount in ETH" inputmode="decimal" required /><button type="button" id="out-max" class="btn small ghost">Max</button><button class="btn small">Send</button></div>
       </form>
+      </div>
       <div class="acts" style="margin-top:14px"><a id="acct-link" class="muted small" target="_blank" rel="noopener">View on explorer</a><button type="button" id="sign-out" class="btn small ghost">Sign out</button></div>
     </dialog>
 
