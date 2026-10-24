@@ -527,7 +527,7 @@ function renderBet() {
     const pot = BigInt(t.entryFeeWei) * BigInt(t.maxPlayers);
     prize.classList.remove("bad");
     prize.textContent = `Win ${eth((pot * 95n) / 100n)}`;
-    $("#bet-detail").textContent = `${t.maxPlayers} players each pay ${eth(t.entryFeeWei)}. Winner takes the pot.`;
+    $("#bet-detail").textContent = `${t.maxPlayers} players each pay ${eth(t.entryFeeWei)}. ${t.variant === "race" ? "First across the line" : "Winner"} takes the pot.`;
   }
   const go = $<HTMLButtonElement>("#bet-go");
   go.disabled = !live || typeof t === "string";
@@ -554,7 +554,7 @@ async function renderOpen() {
   $("#open").innerHTML = list
     .map((m, i) => {
       const who = m.names.filter(Boolean).slice(0, 3).map(esc).join(", ");
-      return `<div class="row"><span><b>${eth(m.entryFee)}</b> · ${m.variant === "battle" ? "Battle" : "Classic"} · ${m.maxPlayers === 2 ? "1 vs 1" : `${m.maxPlayers} players`} · ${m.players}/${m.maxPlayers} in${who ? ` <span class="muted">(${who})</span>` : ""}</span><button class="btn small" data-i="${i}">Join</button></div>`;
+      return `<div class="row"><span><b>${eth(m.entryFee)}</b> · ${m.variant === "battle" ? "Battle" : m.variant === "race" ? "Race" : "Classic"} · ${m.maxPlayers === 2 ? "1 vs 1" : `${m.maxPlayers} players`} · ${m.players}/${m.maxPlayers} in${who ? ` <span class="muted">(${who})</span>` : ""}</span><button class="btn small" data-i="${i}">Join</button></div>`;
     })
     .join("");
   $("#open").querySelectorAll<HTMLButtonElement>("button[data-i]").forEach((b) => {

@@ -7,13 +7,14 @@ import { privateKeyToAccount } from "viem/accounts";
 import { MatchStatus } from "../shared/eip712.ts";
 import { bumperBallsAbi } from "../shared/abi.ts";
 import { SNAP_STRIDE } from "../shared/physics.ts";
+import { TRACK, locate } from "../shared/race.ts";
 
 const BASE = process.env.BASE ?? "http://127.0.0.1:8787";
 const cfg = await (await fetch(`${BASE}/api/config`)).json();
 const chain = { id: cfg.chainId, name: "local", nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: [cfg.rpcUrl] } } } as const;
 const pub = createPublicClient({ chain, transport: http(cfg.rpcUrl) });
 const host = new URL(BASE).host;
-// TIER=battle-2-2000000000000000 plays a paid battle duel for 0.002 ETH instead
+// TIER=battle-2-2000000000000000 plays a paid battle duel for 0.002 ETH instead (race-2-… a paid race)
 const TIER = process.env.TIER ?? "duel-s";
 const ENTRY = TIER === "duel-s" ? 1_000_000_000_000_000n : BigInt(TIER.split("-")[2]);
 const PRIZE = (ENTRY * 2n * 95n) / 100n;
@@ -86,10 +87,21 @@ const results = await Promise.all(
           const m = JSON.parse(e.data as string);
           if (m.t === "hello" || m.t === "seats") you = m.you;
           if (m.t === "start" && i === 0) {
-            // player 0 chases player 1 and dashes when close; player 1 idles
+            // player 0 chases player 1 and dashes when close (in a race: drives round the track); player 1 idles
+            let hint = -1;
             timer = setInterval(() => {
               if (!snap) return;
               const me = 2 + you * SNAP_STRIDE;
+              if (TIER.startsWith("race")) {
+                const at = locate(snap[me], snap[me + 1], hint);
+                hint = at.idx;
+                const goal = TRACK[(at.idx + 12) % TRACK.length];
+                const gx = goal.x - snap[me] - snap[me + 2] * 0.3;
+                const gy = goal.y - snap[me + 1] - snap[me + 3] * 0.3;
+                const gd = Math.hypot(gx, gy) || 1;
+                ws.send(JSON.stringify({ t: "in", x: gx / gd, y: gy / gd, dash: false }));
+                return;
+              }
               const them = 2 + (1 - you) * SNAP_STRIDE;
               const dx = snap[them] - snap[me];
               const dy = snap[them + 1] - snap[me + 1];
@@ -108,7 +120,7 @@ const results = await Promise.all(
           }
         };
         ws.onerror = () => reject(new Error("ws error"));
-        setTimeout(() => reject(new Error("match timed out")), 150_000);
+        setTimeout(() => reject(new Error("match timed out")), 300_000);
       }),
   ),
 );
