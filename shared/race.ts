@@ -259,42 +259,55 @@ export function raceSnapshot(sim: Sim) {
 }
 export type RaceSnap = ReturnType<typeof raceSnapshot>;
 
-/** Practice bot: follow the racing line, slow for bends, grab boxes, use weapons on whoever is close. */
+/** Practice bot: full throttle round the racing line, braking only as much as a bend needs; rams nearby
+ * rivals on straights, dashes whenever it's lined up, and fires weapons as soon as there's a target. */
 export function raceBotInput(sim: Sim, seat: number, level = 0.8): Input {
   const B = sim.battle!;
   const me = sim.balls[seat];
   const rc = sim.race!.r[seat];
-  if (!me.alive) return { x: 0, y: 0, dash: false };
+  if (!me.alive || spinning(sim, seat)) return { x: 0, y: 0, dash: false };
   const f = B.f[seat];
   const speed = Math.hypot(me.vx, me.vy);
-  const look = Math.round((3 + speed * 0.5) / RACE.step);
+  const look = Math.round((2.5 + speed * 0.45) / RACE.step);
   const here = TRACK[rc.idx];
   let goal: { x: number; y: number } = TRACK[wrap(rc.idx + look)];
-  const far = TRACK[wrap(rc.idx + look * 2 + 8)];
+  // how sharp the road ahead turns, and the fastest speed that still makes the bend
+  const span = look * 2 + 10;
+  const far = TRACK[wrap(rc.idx + span)];
   const bend = Math.acos(Math.max(-1, Math.min(1, here.tx * far.tx + here.ty * far.ty)));
-  // a box a little way ahead: aim for it when empty-handed
+  const radius = bend > 0.01 ? (span * RACE.step) / bend : Infinity;
+  const cap = Math.sqrt(RULES.accel * 0.85 * radius);
+  const want = Math.min(RULES.maxSpeed * (1.1 + 0.3 * level), cap);
+  const foe = nearestFoe(sim, seat, me);
+  const foeD = foe ? dist(foe, me) : Infinity;
+  const ahead = (p: { x: number; y: number }) => (p.x - me.x) * here.tx + (p.y - me.y) * here.ty;
   if (!f.weapon) {
-    const box = sim.race!.boxes.find((x) => x.back <= sim.tick && dist(x, me) < 9 && (x.x - me.x) * here.tx + (x.y - me.y) * here.ty > 1);
+    // empty-handed: steer through the nearest box coming up
+    const box = sim.race!.boxes.find((x) => x.back <= sim.tick && dist(x, me) < 10 && ahead(x) > 1);
     if (box) goal = box;
+  } else if (foe && foeD < 5 && bend < 0.5 && ahead(foe) > -1) {
+    // a rival alongside or just in front on a straight: shove them toward the edge
+    goal = { x: (goal.x + foe.x * 2) / 3, y: (goal.y + foe.y * 2) / 3 };
   }
-  const want = RULES.maxSpeed * level * (1 - 0.45 * Math.min(1, bend / 1.3));
   const gx = goal.x - me.x;
   const gy = goal.y - me.y;
   const gl = Math.hypot(gx, gy) || 1;
   let x = (gx / gl) * want - me.vx;
   let y = (gy / gl) * want - me.vy;
-  const l = Math.hypot(x, y);
-  if (l > 1) [x, y] = [x / l, y / l];
-  else [x, y] = [x * 0.6, y * 0.6];
-  const foe = nearestFoe(sim, seat, me);
-  const foeD = foe ? dist(foe, me) : Infinity;
+  const l = Math.hypot(x, y) || 1;
+  [x, y] = l > 0.25 ? [x / l, y / l] : [x / 0.25, y / 0.25];
+  // dash when lined up with the road (or a rival) and there's room to use it
+  const along = speed > 0.1 ? (me.vx * here.tx + me.vy * here.ty) / speed : 0;
+  const off = Math.abs(locate(me.x, me.y, rc.idx).off);
+  const dash = sim.tick >= me.dashReadyAt && ((bend < 0.3 && along > 0.95 && off < 2.5) || (foe !== null && foeD < 2.6 && ahead(foe) > 0 && off < 3));
   let use = false;
   if (f.weapon && !activeWeapon(sim, seat)) {
     const w = f.weapon;
     const p = Math.random();
-    if (w === "laser" || w === "rocket") use = (racerAhead(sim, seat) !== null || foeD < 12) && p < 0.04;
-    else if (w === "mine") use = p < 0.02;
-    else use = foeD < 5 && p < 0.08;
+    const behind = sim.balls.some((o) => o.alive && o.seat !== seat && dist(o, me) < 10 && ahead(o) < -1);
+    if (w === "laser" || w === "rocket") use = (racerAhead(sim, seat) !== null || foeD < 15) && p < 0.12;
+    else if (w === "mine") use = behind ? p < 0.15 : p < 0.01;
+    else use = foeD < 6 && p < 0.25;
   }
-  return { x, y, dash: bend < 0.25 && speed > 5 && Math.random() < 0.01, use };
+  return { x, y, dash, use };
 }
