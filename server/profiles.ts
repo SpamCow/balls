@@ -16,6 +16,7 @@ export type Profile = {
   freeLosses?: number;
   paidWins?: number;
   paidLosses?: number;
+  spentWei?: string; // entry fees paid into paid matches (tracked from 2026-10-24; earlier losses aren't on record)
 };
 type Board = "free" | "paid";
 
@@ -44,6 +45,7 @@ export function createProfiles(dataDir: string) {
   };
 
   const key = (a: Address) => getAddress(a);
+  const netOf = (p: Profile) => (BigInt(p.earnedWei) - BigInt(p.spentWei ?? "0")).toString();
   const get = (a: Address): Profile => byAddr.get(key(a)) ?? { name: null, wins: 0, losses: 0, earnedWei: "0" };
 
   return {
@@ -60,7 +62,7 @@ export function createProfiles(dataDir: string) {
       save();
       return null;
     },
-    record(a: Address, won: boolean, prizeWei = 0n, board: Board = "free") {
+    record(a: Address, won: boolean, prizeWei = 0n, board: Board = "free", entryWei = 0n) {
       const p = get(a);
       const w = `${board}Wins` as const;
       const l = `${board}Losses` as const;
@@ -69,6 +71,7 @@ export function createProfiles(dataDir: string) {
         wins: p.wins + (won ? 1 : 0),
         losses: p.losses + (won ? 0 : 1),
         earnedWei: (BigInt(p.earnedWei) + prizeWei).toString(),
+        spentWei: (BigInt(p.spentWei ?? "0") + entryWei).toString(),
         [w]: (p[w] ?? 0) + (won ? 1 : 0),
         [l]: (p[l] ?? 0) + (won ? 0 : 1),
       });
@@ -81,8 +84,12 @@ export function createProfiles(dataDir: string) {
         .filter((p) => p.name && w(p) + l(p) > 0)
         .sort((x, y) => w(y) - w(x) || l(x) - l(y))
         .slice(0, limit)
-        .map((p) => ({ name: p.name!, wins: w(p), losses: l(p), ...(board === "paid" ? { earnedWei: p.earnedWei } : {}) }));
+        .map((p) => ({ name: p.name!, wins: w(p), losses: l(p), netWei: netOf(p) }));
     },
+    /** ETH won minus entry fees paid, in wei (negative when down). */
+    net: (a: Address) => netOf(get(a)),
+    /** How many signed-in accounts have finished at least one match. */
+    accounts: () => [...byAddr.values()].filter((p) => p.wins + p.losses > 0).length,
     /** Signed-in players with any finished match, used to seed the all-time player count. */
     addresses: () => [...byAddr].filter(([, p]) => p.wins + p.losses > 0).map(([a]) => a),
   };

@@ -30,6 +30,7 @@ type RoomState = {
   code?: string;
   names: string[];
   skins?: string[];
+  nets?: (string | null)[]; // per seat: ETH won minus entry fees paid (signed-in players)
   host: number | null;
   round: number;
   matchId: string;
@@ -50,6 +51,11 @@ const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 const eth = (wei: bigint | string) => {
   const s = formatEther(BigInt(wei));
   return `${Number(s) < 0.0001 && Number(s) > 0 ? s : Number(Number(s).toFixed(5))} ETH`;
+};
+/** Net ETH as a coloured tag: "+0.012 ETH" up, "−0.003 ETH" down, nothing when even. */
+const netTag = (wei: string | null | undefined) => {
+  const n = BigInt(wei ?? "0");
+  return n === 0n ? "" : `<span class="net ${n > 0n ? "up" : "down"}">${n > 0n ? "+" : "−"}${eth(n > 0n ? n : -n)}</span>`;
 };
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
@@ -274,19 +280,20 @@ async function saveName(e: Event) {
   }
 }
 
-type Leader = { name: string; wins: number; losses: number; earnedWei?: string };
+type Leader = { name: string; wins: number; losses: number; netWei?: string };
 async function renderLeaders() {
   try {
-    const r = (await (await fetch("/api/leaderboard")).json()) as { free: Leader[]; paid: Leader[]; players: number };
+    const r = (await (await fetch("/api/leaderboard")).json()) as { free: Leader[]; paid: Leader[]; players: number; accounts?: number };
     if (r.players > 0) {
-      $("#players-total").textContent = `${r.players.toLocaleString()} ${r.players === 1 ? "person has" : "people have"} played`;
+      const acc = r.accounts ? ` · ${r.accounts.toLocaleString()} account${r.accounts === 1 ? "" : "s"}` : "";
+      $("#players-total").textContent = `${r.players.toLocaleString()} ${r.players === 1 ? "person has" : "people have"} played${acc}`;
       $("#players-total").hidden = false;
     }
     const list = (rows: Leader[]) =>
       `<ol class="leaders">${rows
         .map(
           (r, i) =>
-            `<li class="${r.name === profile?.name ? "me" : ""}"><span class="rank">${i + 1}</span><span>${esc(r.name)}</span><span class="muted small">${r.wins}W · ${r.losses}L${r.earnedWei && r.earnedWei !== "0" ? ` · ${eth(r.earnedWei)} won` : ""}</span></li>`,
+            `<li class="${r.name === profile?.name ? "me" : ""}"><span class="rank">${i + 1}</span><span>${esc(r.name)}</span><span class="muted small">${r.wins}W · ${r.losses}L ${netTag(r.netWei)}</span></li>`,
         )
         .join("")}</ol>`;
     if (r.free.length) $("#leaders-free").innerHTML = list(r.free);
@@ -993,7 +1000,7 @@ function renderSeats() {
   for (let i = 0; i < n; i++) {
     const filled = room.mode === "practice" ? true : room.mode === "friends" ? !!room.seats[i] || room.bots.includes(i) : i < room.seats.length;
     const tag = room.mode === "paid" ? (filled ? "paid" : "open") : "";
-    html += `<div class="seat ${filled ? "" : "empty"} ${i === room.you ? "me" : ""}"><span class="ball" style="background:${filled ? (room.skins?.[i] ? `center/cover url('/skins/${encodeURIComponent(room.skins[i])}')` : COLORS[i]) : "transparent"}"></span><span>${filled ? esc(seatName(i)) : "Open seat"}</span>${tag ? `<span class="tag">${tag}</span>` : ""}</div>`;
+    html += `<div class="seat ${filled ? "" : "empty"} ${i === room.you ? "me" : ""}"><span class="ball" style="background:${filled ? (room.skins?.[i] ? `center/cover url('/skins/${encodeURIComponent(room.skins[i])}')` : COLORS[i]) : "transparent"}"></span><span>${filled ? esc(seatName(i)) : "Open seat"}</span>${filled ? netTag(room.nets?.[i]) : ""}${tag ? `<span class="tag">${tag}</span>` : ""}</div>`;
   }
   el.innerHTML = html;
   $("#pot").textContent =

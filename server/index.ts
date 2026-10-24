@@ -49,7 +49,8 @@ const persist = {
     on ? activePaid.add(id) : activePaid.delete(id);
     if (activeFile) fs.writeFileSync(activeFile, JSON.stringify([...activePaid]));
   },
-  record: (address: Address, won: boolean, prizeWei: bigint, board: "free" | "paid") => profiles.record(address, won, prizeWei, board),
+  record: (address: Address, won: boolean, prizeWei: bigint, board: "free" | "paid", entryWei: bigint) => profiles.record(address, won, prizeWei, board, entryWei),
+  netOf: (address: Address) => profiles.net(address),
   played: (ids: string[]) => players.add(ids),
   nameOf: (address: Address) => profiles.name(address),
 };
@@ -294,7 +295,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, profiles.get(address));
     }
     if (p === "/api/skins") return sendJson(res, 200, skinList);
-    if (p === "/api/leaderboard") return sendJson(res, 200, { free: profiles.leaderboard("free"), paid: profiles.leaderboard("paid"), players: players.total });
+    if (p === "/api/leaderboard") return sendJson(res, 200, { free: profiles.leaderboard("free"), paid: profiles.leaderboard("paid"), players: players.total, accounts: profiles.accounts() });
     if (p === "/api/queue" && req.method === "POST") {
       const address = await verifyToken(env, req.headers.authorization?.replace(/^Bearer /, ""));
       if (!address) return sendJson(res, 401, { error: "sign in first" });

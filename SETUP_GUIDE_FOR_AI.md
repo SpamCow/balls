@@ -66,7 +66,7 @@ If the owner received the repository itself (a GitHub transfer of `SpamCow/balls
 - They sign in with email or Google through **Privy**, which gives each player a built-in wallet on **Robinhood Chain**. Or they connect their own wallet (MetaMask, Rabby, Coinbase Wallet, or any phone wallet through WalletConnect) in the same sign-in box: entry fees come straight from it and prizes go straight back to it. Stats and usernames belong to the wallet, so signing in by email and by wallet are two separate accounts.
 - They deposit ETH to that wallet, play, and cash out to any address from the account panel.
 - After signing in they choose a unique username (3 to 16 letters, numbers or `_`).
-- Wins, losses and ETH won show in the account panel. The home page has two boards, Top 10 free and Top 10 paid, plus a count of everyone who has ever started a match (signed-in players by wallet, guests once per browser).
+- Wins, losses and ETH won show in the account panel. The home page has two boards, Top 10 free and Top 10 paid, plus a count of everyone who has ever started a match (signed-in players by wallet, guests once per browser) and of signed-in accounts. Next to each signed-in name (boards and in-match player list) is their net ETH: prizes won minus entry fees paid, in green or red. Entry fees are only on record from 2026-10-24, so totals for players who lost paid matches before then lean high.
 
 **Skins:** players pick a ball skin on the home page, and everyone in the room sees it. Skins are the image files in `web/public/skins/`. There's more under Changing the game.
 

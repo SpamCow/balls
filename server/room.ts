@@ -41,7 +41,9 @@ const BOT_LEVEL = 0.75;
 export interface Persist {
   activePaid(matchId: string, active: boolean): void;
   /** Count a finished match toward a signed-in player's record. */
-  record(address: Address, won: boolean, prizeWei: bigint, board: "free" | "paid"): void;
+  record(address: Address, won: boolean, prizeWei: bigint, board: "free" | "paid", entryWei: bigint): void;
+  /** ETH won minus entry fees paid, in wei, for the name tags. */
+  netOf(address: Address): string;
   /** Everyone who started a match (wallets, or a guest's browser id), for the all-time player count. */
   played(ids: string[]): void;
   nameOf(address: Address): string | null;
@@ -229,6 +231,7 @@ export class Room {
       // a signed-in player always shows under their username
       names: this.seats.map((a, i) => (a && !a.startsWith("guest:") && this.persist.nameOf(a as Address)) || this.names[i] || ""),
       skins: this.seats.map((a) => (a && this.skinBy.get(a)) || ""),
+      nets: this.seats.map((a) => (a && !a.startsWith("guest:") ? this.persist.netOf(a as Address) : null)),
       host: cfg.mode === "friends" ? this.hostSeat : null,
       round: this.round,
       bots: [...this.bots],
@@ -381,7 +384,7 @@ export class Room {
       this.seats.forEach((s, i) => {
         if (!s || s.startsWith("guest:") || this.bots.has(i)) return;
         const won = i === winnerSeat;
-        this.persist.record(s as Address, won, won ? (pot * 95n) / 100n : 0n, cfg.mode === "paid" ? "paid" : "free");
+        this.persist.record(s as Address, won, won ? (pot * 95n) / 100n : 0n, cfg.mode === "paid" ? "paid" : "free", BigInt(cfg.entryFee ?? 0));
       });
     }
     this.phase = "over";

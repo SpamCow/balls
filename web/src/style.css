@@ -241,3 +241,7 @@ html { touch-action: manipulation; -webkit-text-size-adjust: 100%; }
 #match.spectating .stick, #match.spectating .dash-btn, #match.spectating .use-btn { display: none !important; }
 .check select { font: inherit; background: var(--panel-2); color: inherit; border: 1px solid var(--line); border-radius: 8px; padding: 2px 6px; margin-left: 4px; }
 @media (pointer: coarse) { .check select { font-size: 16px; } }
+.net { font-size: 0.75rem; font-weight: 700; white-space: nowrap; }
+.net.up { color: #4ade80; }
+.net.down { color: #f87171; }
+.seat .net { margin-left: 2px; }
