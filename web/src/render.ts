@@ -28,7 +28,10 @@ function skinTexture(file: string) {
   return t;
 }
 
+// arena models, in their own units: classic is scaled so its floor edge (edge) sits on the shrinking
+// rim; battle so its centre hole (hole) is where balls drop in. floor = height of the playing surface
 const STARLIGHT = { edge: 93, floor: 23.5 };
+const BATTLE_ARENA = { hole: 15.2, floor: 19.5 };
 
 type Fx = { mesh: THREE.Mesh; life: number; max: number; grow: number; fade: number };
 
@@ -123,6 +126,7 @@ export class ArenaView {
   private focus = new THREE.Vector3();
   // classic mode: the Starlight Arena model, scaled with the shrinking platform (the plain disc shows until it loads)
   private starlight: THREE.Object3D | null = null;
+  private battleModel: THREE.Object3D | null = null; // battle mode's arena model (walls and hole stay game-drawn)
   private gone = new Set<number>(); // knocked out (popped, not fallen)
   private bars: { bg: THREE.Sprite; fill: THREE.Sprite; icon: THREE.Sprite }[] = [];
   private hammers: THREE.Group[] = [];
@@ -282,20 +286,30 @@ export class ArenaView {
   }
 
   private loadStarlight() {
-    new GLTFLoader().load(
-      "/arenas/starlight.glb",
-      (gltf) => {
-        const m = gltf.scene;
-        m.traverse((o) => {
-          if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).receiveShadow = true;
-        });
-        this.starlight = m;
-        this.scene.add(m);
-        this.applyArena(this.platform.scale.x);
-      },
-      undefined,
-      () => {}, // keep the plain disc
-    );
+    const load = (url: string, done: (m: THREE.Object3D) => void) =>
+      new GLTFLoader().load(
+        url,
+        (gltf) => {
+          const m = gltf.scene;
+          m.traverse((o) => {
+            if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).receiveShadow = true;
+          });
+          m.visible = false;
+          this.scene.add(m);
+          done(m);
+          this.applyArena(this.platform.scale.x);
+        },
+        undefined,
+        () => {}, // keep the plain disc
+      );
+    load("/arenas/starlight.glb", (m) => (this.starlight = m));
+    load("/arenas/battle.glb", (m) => {
+      // fixed size: the model's hole lines up with where balls drop in (the hole minus its grace)
+      const k = (BATTLE.hole - BATTLE.holeGrace) / BATTLE_ARENA.hole;
+      m.scale.setScalar(k);
+      m.position.y = -BATTLE_ARENA.floor * k;
+      this.battleModel = m;
+    });
   }
 
   /** Show the classic arena at radius r: the model if it's loaded, otherwise the plain disc and pink rim. */
@@ -311,7 +325,9 @@ export class ArenaView {
         m.position.y = -STARLIGHT.floor * k;
       }
     }
-    this.platform.visible = !this.race && !(classic && m);
+    const battleArena = this.battle && !this.race;
+    if (this.battleModel) this.battleModel.visible = battleArena;
+    this.platform.visible = !this.race && !(classic && m) && !(battleArena && this.battleModel);
     this.rim.visible = classic && !m;
   }
 
@@ -458,6 +474,8 @@ export class ArenaView {
   private drawBattle(a: BattleSnap, b: BattleSnap, k: number, now: number) {
     this.hole.scale.setScalar(b.hole);
     this.holeRim.scale.set(b.hole, b.hole, 1);
+    // the arena model has its own hole; draw ours only once sudden death grows it past that
+    this.hole.visible = this.holeRim.visible = !this.battleModel || b.hole > BATTLE.hole + 0.05;
     this.balls.forEach((m, i) => {
       const bar = this.bars[i];
       if (!bar) return;
@@ -593,6 +611,7 @@ export class ArenaView {
     this.trackGroup.visible = race;
     this.hole.scale.setScalar(BATTLE.hole);
     this.holeRim.scale.set(BATTLE.hole, BATTLE.hole, 1);
+    this.hole.visible = this.holeRim.visible = !this.battleModel;
     if (battle)
       this.balls.forEach((m, i) => {
         const a = Math.atan2(m.position.z, m.position.x);
