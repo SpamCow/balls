@@ -1,5 +1,6 @@
 // three.js view of the arena. Purely visual: positions come from server snapshots.
 import * as THREE from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { SNAP_STRIDE, RULES } from "../../shared/physics";
 import { BATTLE, WEAPONS, type BattleSnap } from "../../shared/battle";
 import { COLORS } from "../../shared/config";
@@ -26,6 +27,8 @@ function skinTexture(file: string) {
   }
   return t;
 }
+
+const STARLIGHT = { edge: 93, floor: 23.5 };
 
 type Fx = { mesh: THREE.Mesh; life: number; max: number; grow: number; fade: number };
 
@@ -118,6 +121,8 @@ export class ArenaView {
   private trackGroup = new THREE.Group();
   private sun!: THREE.DirectionalLight;
   private focus = new THREE.Vector3();
+  // classic mode: the Starlight Arena model, scaled with the shrinking platform (the plain disc shows until it loads)
+  private starlight: THREE.Object3D | null = null;
   private gone = new Set<number>(); // knocked out (popped, not fallen)
   private bars: { bg: THREE.Sprite; fill: THREE.Sprite; icon: THREE.Sprite }[] = [];
   private hammers: THREE.Group[] = [];
@@ -191,6 +196,7 @@ export class ArenaView {
     this.marker.visible = false;
     this.scene.add(this.marker);
 
+    this.loadStarlight();
     this.buildBattleArena();
     this.buildTrack();
     addEventListener("resize", () => this.resize());
@@ -273,6 +279,40 @@ export class ArenaView {
       m.add(light);
       return m;
     });
+  }
+
+  private loadStarlight() {
+    new GLTFLoader().load(
+      "/arenas/starlight.glb",
+      (gltf) => {
+        const m = gltf.scene;
+        m.traverse((o) => {
+          if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).receiveShadow = true;
+        });
+        this.starlight = m;
+        this.scene.add(m);
+        this.applyArena(this.platform.scale.x);
+      },
+      undefined,
+      () => {}, // keep the plain disc
+    );
+  }
+
+  /** Show the classic arena at radius r: the model if it's loaded, otherwise the plain disc and pink rim. */
+  private applyArena(r: number) {
+    const classic = !this.battle && !this.race;
+    const m = this.starlight;
+    if (m) {
+      m.visible = classic;
+      if (classic) {
+        // the model's floor edge sits 93 units out and its floor 23.5 up: line both up with the game's edge and y = 0
+        const k = r / STARLIGHT.edge;
+        m.scale.setScalar(k);
+        m.position.y = -STARLIGHT.floor * k;
+      }
+    }
+    this.platform.visible = !this.race && !(classic && m);
+    this.rim.visible = classic && !m;
   }
 
   /** Race mode: the track as a ribbon along its centre line, with glowing edges and a chequered start line. */
@@ -547,8 +587,7 @@ export class ArenaView {
     const r = battle ? BATTLE.arena : RULES.arenaStart;
     this.platform.scale.set(r, 1, r);
     this.rim.scale.set(r, r, 1);
-    this.rim.visible = !battle && !race;
-    this.platform.visible = !race;
+    this.applyArena(r);
     this.arenaGroup.visible = battle;
     this.gear.visible = battle || race;
     this.trackGroup.visible = race;
@@ -673,6 +712,7 @@ export class ArenaView {
       const arena = a.arena + (b.arena - a.arena) * k;
       this.platform.scale.set(arena, 1, arena);
       this.rim.scale.set(arena, arena, 1);
+      if (this.starlight?.visible) this.applyArena(arena);
       (this.rim.material as THREE.MeshBasicMaterial).color.setHSL(0.93, 1, 0.55 + 0.15 * Math.sin(now / 150) * (arena < 10 ? 1 : 0));
 
       b.balls.forEach((bb, i) => {
