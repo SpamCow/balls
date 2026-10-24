@@ -63,7 +63,7 @@ If the owner received the repository itself (a GitHub transfer of `SpamCow/balls
 
 **Players:**
 
-- They sign in with email or Google through **Privy**, which gives each player a built-in wallet on **Robinhood Chain**.
+- They sign in with email or Google through **Privy**, which gives each player a built-in wallet on **Robinhood Chain**. Or they connect their own wallet (MetaMask, Rabby, Coinbase Wallet, or any phone wallet through WalletConnect) in the same sign-in box: entry fees come straight from it and prizes go straight back to it. Stats and usernames belong to the wallet, so signing in by email and by wallet are two separate accounts.
 - They deposit ETH to that wallet, play, and cash out to any address from the account panel.
 - After signing in they choose a unique username (3 to 16 letters, numbers or `_`).
 - Wins, losses and ETH won show in the account panel. The home page has two boards, Top 10 free and Top 10 paid, plus a count of everyone who has ever started a match (signed-in players by wallet, guests once per browser).
@@ -236,7 +236,7 @@ Players sign in with email or Google through Privy, which also gives each of the
 **The owner does this at https://dashboard.privy.io** (give them all of these steps in one message):
 
 1. Create an app.
-2. Under Login methods, turn on **Email** and **Google**.
+2. Under Login methods, turn on **Email**, **Google** and **Wallet** (Wallet lets players connect their own wallet instead).
 3. Make sure Ethereum embedded wallets are on.
 4. Under App settings → Domains, add the **exact** game address to **Allowed origins**: with `https://`, no slash at the end, and no `www.` unless the site really uses it. For example `https://play.theirsite.com`.
 5. Send you the **App ID** (not the secret).
@@ -402,7 +402,7 @@ Either is far more than Render Starter. The game runs on one CPU core, and 100 p
 | `MAX_BET_ETH` | `1` | Biggest entry a player can pick |
 | `RPC_URL` | public RPC | |
 | `PRIVY_APP_ID` | not set | **Required.** Email/Google sign-in and players' built-in wallets |
-| `WALLETCONNECT_PROJECT_ID` | not set | Only used without Privy |
+| `WALLETCONNECT_PROJECT_ID` | not set | Optional. A free project ID from cloud.reown.com for the WalletConnect (phone wallet) option; without it Privy uses its shared one |
 | `CONTRACT_ADDRESS` | worked out automatically | Only set if you deployed the contract by hand |
 | `DATA_DIR` | `/var/lib/bumper-balls` (VPS), `/data` (Render) | Paid matches in play, plus `profiles.json` and `players.txt`. Back it up |
 | `PORT` | `8787` | cPanel sets it itself |
