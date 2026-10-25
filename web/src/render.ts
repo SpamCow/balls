@@ -6,6 +6,7 @@ import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
+import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { SNAP_STRIDE, RULES } from "../../shared/physics";
 import { BATTLE, WEAPONS, type BattleSnap } from "../../shared/battle";
 import { COLORS } from "../../shared/config";
@@ -455,40 +456,89 @@ export class ArenaView {
       grp.add(m, q);
       return grp;
     });
-    const laserGeo = new THREE.SphereGeometry(BATTLE.laser.r, 12, 8);
+    // laser shots: a bright bolt with a soft sheath, pointed the way it's flying
+    const boltGeo = new THREE.CapsuleGeometry(0.11, 0.7, 4, 12).rotateZ(Math.PI / 2);
+    const sheathGeo = new THREE.CapsuleGeometry(0.24, 0.85, 4, 12).rotateZ(Math.PI / 2);
     // each player's shots are their ball colour
     this.laserMats = COLORS.map((c) => ({
-      core: new THREE.MeshBasicMaterial({ color: c }),
-      glow: new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false }),
+      core: new THREE.MeshBasicMaterial({ color: new THREE.Color(c).lerp(new THREE.Color("#ffffff"), 0.3) }),
+      glow: new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending, depthWrite: false }),
     }));
     this.lasers = new Pool(this.gear, () => {
-      const m = new THREE.Mesh(laserGeo, this.laserMats[0].core);
-      const glow = new THREE.Mesh(laserGeo, this.laserMats[0].glow);
-      glow.scale.setScalar(2.2);
-      m.add(glow);
+      const m = new THREE.Mesh(boltGeo, this.laserMats[0].core);
+      m.add(new THREE.Mesh(sheathGeo, this.laserMats[0].glow));
       return m;
     });
-    const rocketGeo = new THREE.ConeGeometry(0.25, 0.9, 12);
-    rocketGeo.rotateZ(-Math.PI / 2); // point along +x
-    const rocketMat = new THREE.MeshStandardMaterial({ color: "#e5e5e5", emissive: "#ff5400", emissiveIntensity: 0.3 });
-    const flameMat = new THREE.MeshBasicMaterial({ color: "#ffbe0b", transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending });
+
+    // homing rocket: white body, red nose and fins, metal nozzle and a flickering flame; points along +x
+    const lathe = (pts: [number, number][], seg = 20) => new THREE.LatheGeometry(pts.map(([r, y]) => new THREE.Vector2(r, y)), seg).rotateZ(-Math.PI / 2);
+    const bodyGeo = lathe([[0, -0.42], [0.15, -0.42], [0.19, -0.36], [0.19, 0.16]]);
+    const noseGeo = lathe([[0.19, 0.16], [0.17, 0.3], [0.12, 0.42], [0.05, 0.5], [0, 0.52]]);
+    const bandGeo = lathe([[0.195, -0.06], [0.195, 0.04]]);
+    const nozzleGeo = lathe([[0.1, -0.42], [0.14, -0.56], [0.11, -0.56], [0.07, -0.44]], 16);
+    const fin = new THREE.Shape();
+    fin.moveTo(0, 0);
+    fin.lineTo(0.26, 0);
+    fin.lineTo(0.02, 0.24);
+    fin.lineTo(-0.06, 0.24);
+    fin.closePath();
+    const finGeo = new THREE.ExtrudeGeometry(fin, { depth: 0.03, bevelEnabled: false }).translate(-0.42, 0.17, -0.015);
+    const flameGeo = new THREE.ConeGeometry(0.13, 0.55, 12, 1, true).rotateZ(Math.PI / 2).translate(-0.82, 0, 0);
+    const flameCoreGeo = new THREE.ConeGeometry(0.06, 0.3, 10, 1, true).rotateZ(Math.PI / 2).translate(-0.7, 0, 0);
+    const white = new THREE.MeshStandardMaterial({ color: "#f1f3f5", metalness: 0.3, roughness: 0.35 });
+    const red = new THREE.MeshStandardMaterial({ color: "#e63946", metalness: 0.2, roughness: 0.4 });
+    const darkRed = new THREE.MeshStandardMaterial({ color: "#9d0208", metalness: 0.2, roughness: 0.45, side: THREE.DoubleSide });
+    const steel = new THREE.MeshStandardMaterial({ color: "#6c757d", metalness: 0.9, roughness: 0.3, side: THREE.DoubleSide });
+    const flameMat = new THREE.MeshBasicMaterial({ color: "#ff8c1a", transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+    const flameCoreMat = new THREE.MeshBasicMaterial({ color: "#fff3b0", transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
     this.rockets = new Pool(this.gear, () => {
-      const m = new THREE.Mesh(rocketGeo, rocketMat);
-      const flame = new THREE.Mesh(SPARK_GEO, flameMat);
-      flame.scale.setScalar(3);
-      flame.position.x = -0.55;
-      m.add(flame);
+      const m = new THREE.Group();
+      const body = new THREE.Group(); // rolls slowly around its own axis
+      body.name = "body";
+      body.add(new THREE.Mesh(bodyGeo, white), new THREE.Mesh(noseGeo, red), new THREE.Mesh(bandGeo, red), new THREE.Mesh(nozzleGeo, steel));
+      for (let k = 0; k < 4; k++) {
+        const f = new THREE.Mesh(finGeo, darkRed);
+        f.rotation.x = (k / 4) * Math.PI * 2;
+        body.add(f);
+      }
+      body.traverse((o) => ((o as THREE.Mesh).isMesh && ((o as THREE.Mesh).castShadow = true)));
+      const flame = new THREE.Mesh(flameGeo, flameMat);
+      flame.name = "flame";
+      flame.add(new THREE.Mesh(flameCoreGeo, flameCoreMat));
+      m.add(body, flame);
+      m.scale.setScalar(1.15);
       return m;
     });
-    const mineGeo = new THREE.CylinderGeometry(0.5, 0.55, 0.22, 20);
-    // each mine is the colour of whoever dropped it
-    this.mineMats = COLORS.map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.5, emissive: c, emissiveIntensity: 0.25 }));
-    const lightGeo = new THREE.SphereGeometry(0.12, 8, 6);
-    const lightMat = new THREE.MeshBasicMaterial({ color: "#ffffff" });
+
+    // landmine: a dark metal dome with studs, a ring in the owner's colour and a blinking light on top
+    const domeGeo = new THREE.LatheGeometry(
+      [[0, 0], [0.56, 0], [0.56, 0.05], [0.5, 0.12], [0.38, 0.2], [0.2, 0.25], [0, 0.26]].map(([r, y]) => new THREE.Vector2(r, y)),
+      28,
+    );
+    const ringGeo = new THREE.TorusGeometry(0.5, 0.035, 8, 40).rotateX(Math.PI / 2).translate(0, 0.1, 0);
+    const studGeo = new THREE.CylinderGeometry(0.045, 0.055, 0.07, 8);
+    const capGeo = new THREE.CylinderGeometry(0.11, 0.13, 0.06, 16).translate(0, 0.28, 0);
+    const lightGeo = new THREE.SphereGeometry(0.075, 12, 8).translate(0, 0.34, 0);
+    const shell = new THREE.MeshStandardMaterial({ color: "#2b2d42", metalness: 0.7, roughness: 0.4 });
+    const studMat = new THREE.MeshStandardMaterial({ color: "#adb5bd", metalness: 0.9, roughness: 0.25 });
+    // each mine's ring is the colour of whoever dropped it
+    this.mineMats = COLORS.map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.4, emissive: c, emissiveIntensity: 0.6 }));
+    const lightMat = new THREE.MeshBasicMaterial({ color: "#ff2e2e" });
     this.mines = new Pool(this.gear, () => {
-      const m = new THREE.Mesh(mineGeo, this.mineMats[0]);
+      const m = new THREE.Group();
+      const dome = new THREE.Mesh(domeGeo, shell);
+      dome.castShadow = true;
+      const ring = new THREE.Mesh(ringGeo, this.mineMats[0]);
+      ring.name = "ring";
+      m.add(dome, ring, new THREE.Mesh(capGeo, studMat));
+      for (let k = 0; k < 6; k++) {
+        const a = (k / 6) * Math.PI * 2;
+        const st = new THREE.Mesh(studGeo, studMat);
+        st.position.set(Math.cos(a) * 0.3, 0.23, Math.sin(a) * 0.3);
+        m.add(st);
+      }
       const light = new THREE.Mesh(lightGeo, lightMat);
-      light.position.y = 0.15;
+      light.name = "light";
       m.add(light);
       return m;
     });
@@ -577,8 +627,10 @@ export class ArenaView {
     if (!this.battle) return;
     const spikeGeo = new THREE.ConeGeometry(0.16, 0.55, 8);
     const spikeMat = new THREE.MeshStandardMaterial({ color: "#e9ecef", metalness: 0.6, roughness: 0.3 });
-    const handleMat = new THREE.MeshStandardMaterial({ color: "#8d5524", roughness: 0.7 });
-    const headMat = new THREE.MeshStandardMaterial({ color: "#ced4da", metalness: 0.5, roughness: 0.3, emissive: "#495057", emissiveIntensity: 0.5 });
+    const handleMat = new THREE.MeshStandardMaterial({ color: "#a0672f", roughness: 0.6 });
+    const headMat = new THREE.MeshStandardMaterial({ color: "#c9ced6", metalness: 0.9, roughness: 0.28 });
+    const faceMat = new THREE.MeshStandardMaterial({ color: "#5c636b", metalness: 0.95, roughness: 0.35 });
+    const gripMat = new THREE.MeshStandardMaterial({ color: "#3d2314", roughness: 0.8 });
     for (let i = 0; i < n; i++) {
       const bg = new THREE.Sprite(new THREE.SpriteMaterial({ color: "#000000", opacity: 0.55, transparent: true, depthTest: false }));
       const fill = new THREE.Sprite(new THREE.SpriteMaterial({ color: "#3ddc97", depthTest: false }));
@@ -595,13 +647,26 @@ export class ArenaView {
 
       const H = BATTLE.hammer;
       const hammer = new THREE.Group();
-      const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, H.reach, 8), handleMat);
+      // wooden handle with a leather grip, a steel collar and a rounded steel head with darker striking faces
+      const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.11, H.reach, 14), handleMat);
       handle.rotation.z = Math.PI / 2;
       handle.position.x = H.reach / 2;
-      const head = new THREE.Mesh(new THREE.BoxGeometry(H.head * 1.3, H.head * 1.3, H.head * 2), headMat);
+      const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.125, 0.125, 0.55, 14), gripMat);
+      grip.rotation.z = Math.PI / 2;
+      grip.position.x = RULES.ballRadius + 0.35;
+      const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.22, 16), faceMat);
+      collar.rotation.z = Math.PI / 2;
+      collar.position.x = H.reach - H.head * 0.62;
+      const head = new THREE.Mesh(new RoundedBoxGeometry(H.head * 1.15, H.head * 1.15, H.head * 1.9, 3, 0.09), headMat);
       head.position.x = H.reach;
       head.castShadow = true;
-      hammer.add(handle, head);
+      for (const side of [-1, 1]) {
+        const face = new THREE.Mesh(new THREE.CylinderGeometry(H.head * 0.5, H.head * 0.56, 0.16, 24), faceMat);
+        face.rotation.x = Math.PI / 2;
+        face.position.set(H.reach, 0, side * H.head * 1.0);
+        hammer.add(face);
+      }
+      hammer.add(handle, grip, collar, head);
       hammer.visible = false;
       this.scene.add(hammer);
       this.hammers.push(hammer);
@@ -692,6 +757,9 @@ export class ArenaView {
     const prevL = byId(a.l, 4);
     this.lasers.sync(b.l, 4, (m, d, i) => {
       const [x, z] = lerp(prevL, a.l, d, i);
+      const dx = x - m.position.x;
+      const dz = z - m.position.z;
+      if (dx * dx + dz * dz > 1e-6 && m.position.y > 0) m.rotation.y = -Math.atan2(dz, dx); // face the way it's going
       m.position.set(x, 0.7, z);
       const mats = this.laserMats[d[i + 3] % this.laserMats.length];
       (m as THREE.Mesh).material = mats.core;
@@ -702,11 +770,14 @@ export class ArenaView {
       const [x, z] = lerp(prevR, a.r, d, i);
       m.position.set(x, 0.8, z);
       m.rotation.y = -d[i + 3];
+      m.getObjectByName("body")!.rotation.x = t * 4;
+      const flame = m.getObjectByName("flame")!;
+      flame.scale.set(0.8 + Math.random() * 0.45, 0.9 + Math.random() * 0.2, 0.9 + Math.random() * 0.2);
     });
     this.mines.sync(b.m, 5, (m, d, i) => {
-      m.position.set(d[i + 1], 0.11, d[i + 2]);
-      (m as THREE.Mesh).material = this.mineMats[d[i + 4] % this.mineMats.length];
-      const light = m.children[0] as THREE.Mesh;
+      m.position.set(d[i + 1], 0, d[i + 2]);
+      (m.getObjectByName("ring") as THREE.Mesh).material = this.mineMats[d[i + 4] % this.mineMats.length];
+      const light = m.getObjectByName("light")!;
       light.visible = d[i + 3] === 0 || Math.sin(t * 12) > 0; // blinks once armed
     });
   }
