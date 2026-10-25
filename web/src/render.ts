@@ -1,6 +1,10 @@
 // three.js view of the arena. Purely visual: positions come from server snapshots.
 import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { SNAP_STRIDE, RULES } from "../../shared/physics";
 import { BATTLE, WEAPONS, type BattleSnap } from "../../shared/battle";
 import { COLORS } from "../../shared/config";
@@ -28,10 +32,124 @@ function skinTexture(file: string) {
   return t;
 }
 
-// arena models, in their own units: classic is scaled so its floor edge (edge) sits on the shrinking
-// rim; battle so its centre hole (hole) is where balls drop in. floor = height of the playing surface
-const STARLIGHT = { edge: 94, floor: 21.7 };
-const BATTLE_ARENA = { hole: 15.2, floor: 19.5 };
+// confetti pieces: one flat card, a double-sided material per colour
+const CONFETTI_GEO = new THREE.PlaneGeometry(0.3, 0.17);
+const confettiMats = new Map<string, THREE.MeshBasicMaterial>();
+const confettiMat = (c: string) => {
+  let m = confettiMats.get(c);
+  if (!m) confettiMats.set(c, (m = new THREE.MeshBasicMaterial({ color: c, side: THREE.DoubleSide })));
+  return m;
+};
+const KO_RING_GEO = new THREE.RingGeometry(0.75, 1, 48).rotateX(-Math.PI / 2);
+
+function canvasTexture(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void) {
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  draw(c.getContext("2d")!);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+/** Floor of the platform: a dark glossy disc with faint neon rings and spokes (mapped onto the cylinder's top cap). */
+function floorTextures() {
+  const S = 1024;
+  const C = S / 2;
+  const color = canvasTexture(S, S, (g) => {
+    const grad = g.createRadialGradient(C, C, 0, C, C, C);
+    grad.addColorStop(0, "#252b5e");
+    grad.addColorStop(0.7, "#161a3d");
+    grad.addColorStop(1, "#0e1130");
+    g.fillStyle = grad;
+    g.fillRect(0, 0, S, S);
+  });
+  const glow = canvasTexture(S, S, (g) => {
+    g.fillStyle = "#000";
+    g.fillRect(0, 0, S, S);
+    g.strokeStyle = "rgba(94,231,255,0.32)";
+    g.lineWidth = 2;
+    for (let i = 1; i < 8; i++) {
+      g.beginPath();
+      g.arc(C, C, (C * i) / 8, 0, Math.PI * 2);
+      g.stroke();
+    }
+    g.strokeStyle = "rgba(94,231,255,0.16)";
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2;
+      g.beginPath();
+      g.moveTo(C + Math.cos(a) * C * 0.125, C + Math.sin(a) * C * 0.125);
+      g.lineTo(C + Math.cos(a) * C, C + Math.sin(a) * C);
+      g.stroke();
+    }
+    // a soft glowing centre mark
+    const dot = g.createRadialGradient(C, C, 0, C, C, C * 0.125);
+    dot.addColorStop(0, "rgba(199,125,255,0.55)");
+    dot.addColorStop(1, "rgba(199,125,255,0)");
+    g.fillStyle = dot;
+    g.fillRect(0, 0, S, S);
+  });
+  for (const t of [color, glow]) t.anisotropy = 8;
+  return { color, glow };
+}
+
+/** Background: soft nebula clouds, painted once onto the inside of a big sphere (the stars are points on top). */
+function skyTexture() {
+  const W = 2048;
+  const H = 1024;
+  return canvasTexture(W, H, (g) => {
+    g.fillStyle = "#06071a";
+    g.fillRect(0, 0, W, H);
+    const clouds: [number, number, number, string][] = [
+      [0.15, 0.62, 380, "rgba(122,60,220,0.22)"],
+      [0.42, 0.7, 300, "rgba(30,120,220,0.2)"],
+      [0.66, 0.6, 420, "rgba(220,50,140,0.14)"],
+      [0.88, 0.72, 320, "rgba(40,200,220,0.13)"],
+      [0.3, 0.35, 260, "rgba(90,70,200,0.12)"],
+      [0.75, 0.3, 280, "rgba(200,80,200,0.1)"],
+    ];
+    for (const [u, v, r, c] of clouds)
+      for (const dx of [-W, 0, W]) {
+        // drawn three times so the cloud wraps across the seam
+        const grad = g.createRadialGradient(u * W + dx, v * H, 0, u * W + dx, v * H, r);
+        grad.addColorStop(0, c);
+        grad.addColorStop(1, "rgba(0,0,0,0)");
+        g.fillStyle = grad;
+        g.fillRect(0, 0, W, H);
+      }
+  });
+}
+
+/** A soft round dot, for the floating motes. */
+function dotTexture() {
+  return canvasTexture(64, 64, (g) => {
+    const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, "rgba(255,255,255,1)");
+    grad.addColorStop(0.3, "rgba(255,255,255,0.5)");
+    grad.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 64, 64);
+  });
+}
+
+const MOTES = 70;
+const BLOB_GEO = new THREE.PlaneGeometry(RULES.ballRadius * 3, RULES.ballRadius * 3).rotateX(-Math.PI / 2);
+let blobMaterial: THREE.MeshBasicMaterial | null = null;
+const blobMat = () =>
+  (blobMaterial ??= new THREE.MeshBasicMaterial({
+    map: canvasTexture(64, 64, (g) => {
+      const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+      grad.addColorStop(0, "rgba(0,0,0,0.7)");
+      grad.addColorStop(0.5, "rgba(0,0,0,0.35)");
+      grad.addColorStop(1, "rgba(0,0,0,0)");
+      g.fillStyle = grad;
+      g.fillRect(0, 0, 64, 64);
+    }),
+    transparent: true,
+    depthWrite: false,
+  }));
+const SQ = new THREE.Matrix4();
+const ORIGIN = new THREE.Vector3();
 
 type Fx = { mesh: THREE.Mesh; life: number; max: number; grow: number; fade: number };
 
@@ -124,9 +242,15 @@ export class ArenaView {
   private trackGroup = new THREE.Group();
   private sun!: THREE.DirectionalLight;
   private focus = new THREE.Vector3();
-  // classic mode: the Starlight Arena model, scaled with the shrinking platform (the plain disc shows until it loads)
-  private starlight: THREE.Object3D | null = null;
-  private battleModel: THREE.Object3D | null = null; // battle mode's arena model (walls and hole stay game-drawn)
+  private rimGlow: THREE.Mesh;
+  private sky: THREE.Mesh;
+  private motes: THREE.Points;
+  private moteSeed: Float32Array;
+  private composer: EffectComposer | null = null; // soft glow; null on weak devices
+  private slowFrames = 0;
+  private blobs: THREE.Mesh[] = [];
+  private squash = new Map<number, { t: number; max: number; amt: number; dx: number; dz: number }>();
+  private confetti: { mesh: THREE.Mesh; v: THREE.Vector3; spin: THREE.Vector3; life: number }[] = [];
   private gone = new Set<number>(); // knocked out (popped, not fallen)
   private bars: { bg: THREE.Sprite; fill: THREE.Sprite; icon: THREE.Sprite }[] = [];
   private hammers: THREE.Group[] = [];
@@ -166,41 +290,83 @@ export class ArenaView {
     this.scene.add(sun, sun.target);
 
     // platform: unit-radius cylinder scaled to the arena size each frame
-    const top = new THREE.MeshStandardMaterial({ color: "#2a2f55", roughness: 0.55, metalness: 0.1 });
-    const side = new THREE.MeshStandardMaterial({ color: "#151834", roughness: 0.8 });
+    const floor = floorTextures();
+    const top = new THREE.MeshStandardMaterial({ map: floor.color, emissiveMap: floor.glow, emissive: "#ffffff", emissiveIntensity: 1.4, roughness: 0.22, metalness: 0.35 });
+    const side = new THREE.MeshStandardMaterial({ color: "#0e1130", roughness: 0.5, metalness: 0.3, emissive: "#2a1650", emissiveIntensity: 0.6 });
     this.platform = new THREE.Mesh(new THREE.CylinderGeometry(1, 0.92, 1.2, 96, 1), [side, top, side]);
     this.platform.position.y = -0.6;
     this.platform.receiveShadow = true;
     this.scene.add(this.platform);
 
-    // floor grid lines so motion reads well
-    const grid = new THREE.Mesh(
-      new THREE.RingGeometry(0.2, 0.21, 64),
-      new THREE.MeshBasicMaterial({ color: "#3a4080", side: THREE.DoubleSide }),
-    );
-    grid.rotation.x = -Math.PI / 2;
-    grid.position.y = 0.01;
-    this.platform.add(grid);
-    for (const r of [0.45, 0.7]) {
-      const g = grid.clone();
-      g.geometry = new THREE.RingGeometry(r, r + 0.008, 96);
-      this.platform.add(g);
-    }
-
-    this.rim = new THREE.Mesh(
-      new THREE.TorusGeometry(1, 0.012, 8, 128),
-      new THREE.MeshBasicMaterial({ color: "#ff3d7f" }),
-    );
+    // neon rim: a bright core and a wider soft halo; its colour heats up as the arena closes in
+    this.rim = new THREE.Mesh(new THREE.TorusGeometry(1, 0.012, 8, 128), new THREE.MeshBasicMaterial({ color: "#5ee7ff" }));
     this.rim.rotation.x = Math.PI / 2;
     this.rim.position.y = 0.02;
     this.scene.add(this.rim);
+    this.rimGlow = new THREE.Mesh(
+      new THREE.TorusGeometry(1, 0.032, 8, 128),
+      new THREE.MeshBasicMaterial({ color: "#5ee7ff", transparent: true, opacity: 0.16, blending: THREE.AdditiveBlending, depthWrite: false }),
+    );
+    this.rim.add(this.rimGlow);
+
+    this.sky = new THREE.Mesh(
+      new THREE.SphereGeometry(150, 48, 24),
+      new THREE.MeshBasicMaterial({ map: skyTexture(), side: THREE.BackSide, fog: false, depthWrite: false }),
+    );
+    this.sky.renderOrder = -1;
+    this.scene.add(this.sky);
+    // stars as points so they stay round wherever the camera looks
+    for (const [n, size, opacity] of [[1400, 1.6, 0.8], [160, 3, 1]]) {
+      const pos = new Float32Array(n * 3);
+      const col = new Float32Array(n * 3);
+      const tint = new THREE.Color();
+      for (let i = 0; i < n; i++) {
+        const v = new THREE.Vector3().randomDirection().multiplyScalar(140);
+        pos.set([v.x, v.y, v.z], i * 3);
+        tint.set(Math.random() < 0.2 ? "#aac8ff" : Math.random() < 0.1 ? "#ffc8e6" : "#ffffff").multiplyScalar(0.4 + Math.random() * 0.6);
+        col.set([tint.r, tint.g, tint.b], i * 3);
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+      g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+      const stars = new THREE.Points(g, new THREE.PointsMaterial({ size, sizeAttenuation: false, vertexColors: true, transparent: true, opacity, fog: false, depthWrite: false }));
+      stars.renderOrder = -1;
+      this.sky.add(stars);
+    }
+
+    // a few specks of light drifting over the arena
+    this.moteSeed = new Float32Array(MOTES * 4);
+    for (let i = 0; i < this.moteSeed.length; i++) this.moteSeed[i] = Math.random();
+    const mg = new THREE.BufferGeometry();
+    mg.setAttribute("position", new THREE.BufferAttribute(new Float32Array(MOTES * 3), 3));
+    this.motes = new THREE.Points(
+      mg,
+      new THREE.PointsMaterial({ map: dotTexture(), color: "#bfe9ff", size: 0.35, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false }),
+    );
+    this.motes.frustumCulled = false;
+    this.scene.add(this.motes);
+
+    // soft studio reflections on the balls and the glossy floor
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    this.scene.environmentIntensity = 0.25;
+    pmrem.dispose();
+
+    // soft glow on bright things (rim, trails, sparks); skipped on phones and weak machines
+    const coarse = matchMedia("(pointer: coarse)").matches;
+    if (!coarse && (navigator.hardwareConcurrency ?? 4) >= 4) {
+      const c = new EffectComposer(this.renderer);
+      c.addPass(new RenderPass(this.scene, this.camera));
+      c.addPass(new UnrealBloomPass(new THREE.Vector2(256, 256), 0.55, 0.45, 0.82));
+      c.addPass(new OutputPass());
+      this.composer = c;
+    }
 
     this.marker = new THREE.Mesh(new THREE.ConeGeometry(0.35, 0.6, 16), new THREE.MeshBasicMaterial({ color: "#ffffff" }));
     this.marker.rotation.x = Math.PI;
     this.marker.visible = false;
     this.scene.add(this.marker);
 
-    this.loadStarlight();
     this.buildBattleArena();
     this.buildTrack();
     addEventListener("resize", () => this.resize());
@@ -218,7 +384,7 @@ export class ArenaView {
     );
     wall.position.y = 0.55;
     g.add(wall);
-    const top = new THREE.Mesh(new THREE.TorusGeometry(R + 0.15, 0.09, 8, 128), new THREE.MeshBasicMaterial({ color: "#7af0ff" }));
+    const top = new THREE.Mesh(new THREE.TorusGeometry(R + 0.15, 0.09, 8, 128), new THREE.MeshBasicMaterial({ color: new THREE.Color("#7af0ff").multiplyScalar(1.6) }));
     top.rotation.x = Math.PI / 2;
     top.position.y = 1.1;
     g.add(top);
@@ -285,52 +451,6 @@ export class ArenaView {
     });
   }
 
-  private loadStarlight() {
-    const load = (url: string, done: (m: THREE.Object3D) => void) =>
-      new GLTFLoader().load(
-        url,
-        (gltf) => {
-          const m = gltf.scene;
-          m.traverse((o) => {
-            if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).receiveShadow = true;
-          });
-          m.visible = false;
-          this.scene.add(m);
-          done(m);
-          this.applyArena(this.platform.scale.x);
-        },
-        undefined,
-        () => {}, // keep the plain disc
-      );
-    load("/arenas/starlight.glb", (m) => (this.starlight = m));
-    load("/arenas/battle.glb", (m) => {
-      // fixed size: the model's hole lines up with where balls drop in (the hole minus its grace)
-      const k = (BATTLE.hole - BATTLE.holeGrace) / BATTLE_ARENA.hole;
-      m.scale.setScalar(k);
-      m.position.y = -BATTLE_ARENA.floor * k;
-      this.battleModel = m;
-    });
-  }
-
-  /** Show the classic arena at radius r: the model if it's loaded, otherwise the plain disc and pink rim. */
-  private applyArena(r: number) {
-    const classic = !this.battle && !this.race;
-    const m = this.starlight;
-    if (m) {
-      m.visible = classic;
-      if (classic) {
-        // the model's outer rim sits 94 units out and its floor 21.7 up: line both up with the game's edge and y = 0
-        const k = r / STARLIGHT.edge;
-        m.scale.setScalar(k);
-        m.position.y = -STARLIGHT.floor * k;
-      }
-    }
-    const battleArena = this.battle && !this.race;
-    if (this.battleModel) this.battleModel.visible = battleArena;
-    this.platform.visible = !this.race && !(classic && m) && !(battleArena && this.battleModel);
-    this.rim.visible = classic && !m;
-  }
-
   /** Race mode: the track as a ribbon along its centre line, with glowing edges and a chequered start line. */
   private buildTrack() {
     const g = this.trackGroup;
@@ -363,12 +483,12 @@ export class ArenaView {
       g.add(m);
       return m;
     };
-    const top = new THREE.MeshStandardMaterial({ color: "#2a2f55", roughness: 0.55, metalness: 0.1, side: THREE.DoubleSide });
-    const side = new THREE.MeshStandardMaterial({ color: "#151834", roughness: 0.8, side: THREE.DoubleSide });
+    const top = new THREE.MeshStandardMaterial({ color: "#1a1f48", roughness: 0.25, metalness: 0.35, side: THREE.DoubleSide });
+    const side = new THREE.MeshStandardMaterial({ color: "#0e1130", roughness: 0.5, metalness: 0.3, emissive: "#2a1650", emissiveIntensity: 0.6, side: THREE.DoubleSide });
     strip(-W, W, 0, 0, top, N, N).receiveShadow = true;
     strip(W, W - 0.3, 0, -1.2, side, N, N);
     strip(-W, -W + 0.3, 0, -1.2, side, N, N);
-    const edge = new THREE.MeshBasicMaterial({ color: "#ff3d7f", side: THREE.DoubleSide });
+    const edge = new THREE.MeshBasicMaterial({ color: new THREE.Color("#ff3d7f").multiplyScalar(1.8), side: THREE.DoubleSide });
     strip(W - 0.14, W + 0.02, 0.02, 0.02, edge, N, N);
     strip(-W + 0.14, -W - 0.02, 0.02, 0.02, edge, N, N);
     // centre dashes so speed reads well
@@ -379,7 +499,7 @@ export class ArenaView {
     c.height = 128;
     const cx = c.getContext("2d")!;
     for (let y = 0; y < 16; y++) for (let x = 0; x < 2; x++) {
-      cx.fillStyle = (x + y) % 2 ? "#111" : "#f5f5f5";
+      cx.fillStyle = (x + y) % 2 ? "#111" : "#c8c8c8";
       cx.fillRect(x * 8, y * 8, 8, 8);
     }
     const tex = new THREE.CanvasTexture(c);
@@ -474,8 +594,6 @@ export class ArenaView {
   private drawBattle(a: BattleSnap, b: BattleSnap, k: number, now: number) {
     this.hole.scale.setScalar(b.hole);
     this.holeRim.scale.set(b.hole, b.hole, 1);
-    // the arena model has its own hole; draw ours only once sudden death grows it past that
-    this.hole.visible = this.holeRim.visible = !this.battleModel || b.hole > BATTLE.hole + 0.05;
     this.balls.forEach((m, i) => {
       const bar = this.bars[i];
       if (!bar) return;
@@ -572,6 +690,7 @@ export class ArenaView {
     if (!m) return;
     this.gone.add(seat);
     this.burst(m.position.clone(), 24, [COLORS[seat % COLORS.length], "#ffffff"], 12, 0.7);
+    this.koRing(m.position.x, m.position.z, seat);
     m.visible = false;
   }
 
@@ -584,11 +703,16 @@ export class ArenaView {
     battle = battle && !race; // from here on: the battle arena
     this.gone.clear();
     for (const b of this.balls) this.scene.remove(b);
+    for (const b of this.blobs) this.scene.remove(b);
     this.balls = [];
+    this.blobs = [];
+    this.squash.clear();
+    for (const c of this.confetti) this.scene.remove(c.mesh);
+    this.confetti = [];
     this.falling.clear();
     this.snaps = [];
     for (let i = 0; i < n; i++) {
-      const mat = new THREE.MeshStandardMaterial({ color: COLORS[i % COLORS.length], roughness: 0.25, metalness: 0.15 });
+      const mat = new THREE.MeshPhysicalMaterial({ color: COLORS[i % COLORS.length], roughness: 0.3, metalness: 0.05, clearcoat: 1, clearcoatRoughness: 0.12 });
       const m = new THREE.Mesh(new THREE.SphereGeometry(RULES.ballRadius, 40, 28), mat);
       // a stripe so rolling is visible
       const band = new THREE.Mesh(
@@ -601,17 +725,21 @@ export class ArenaView {
       m.position.set(Math.cos(a) * RULES.spawnRadius, RULES.ballRadius, Math.sin(a) * RULES.spawnRadius);
       this.scene.add(m);
       this.balls.push(m);
+      const blob = new THREE.Mesh(BLOB_GEO, blobMat());
+      blob.position.y = 0.012;
+      this.scene.add(blob);
+      this.blobs.push(blob);
     }
     const r = battle ? BATTLE.arena : RULES.arenaStart;
     this.platform.scale.set(r, 1, r);
     this.rim.scale.set(r, r, 1);
-    this.applyArena(r);
+    this.platform.visible = !race;
+    this.rim.visible = !battle && !race;
     this.arenaGroup.visible = battle;
     this.gear.visible = battle || race;
     this.trackGroup.visible = race;
     this.hole.scale.setScalar(BATTLE.hole);
     this.holeRim.scale.set(BATTLE.hole, BATTLE.hole, 1);
-    this.hole.visible = this.holeRim.visible = !this.battleModel;
     if (battle)
       this.balls.forEach((m, i) => {
         const a = Math.atan2(m.position.z, m.position.x);
@@ -639,7 +767,7 @@ export class ArenaView {
   private applySkins() {
     this.balls.forEach((m, i) => {
       const file = this.skins[i] || "";
-      const mat = m.material as THREE.MeshStandardMaterial;
+      const mat = m.material as THREE.MeshPhysicalMaterial;
       const band = m.children[0] as THREE.Mesh | undefined;
       mat.map = file ? skinTexture(file) : null;
       mat.color.set(file ? "#ffffff" : COLORS[i % COLORS.length]);
@@ -672,6 +800,47 @@ export class ArenaView {
     const mid = this.mid(a, b);
     if (!mid) return;
     this.burst(mid, Math.min(14, 4 + Math.round(force)), ["#fff3b0"], 10, 0.5);
+    // both balls squash a little along the line between them
+    const A = this.balls[a].position;
+    const B = this.balls[b].position;
+    const dx = B.x - A.x;
+    const dz = B.z - A.z;
+    const l = Math.hypot(dx, dz) || 1;
+    const amt = Math.min(0.24, 0.06 + force * 0.015);
+    for (const s of [a, b]) this.squash.set(s, { t: 0.2, max: 0.2, amt, dx: dx / l, dz: dz / l });
+  }
+
+  /** A ring of light where a ball went out, in its colour. */
+  private koRing(x: number, z: number, seat: number) {
+    const c = COLORS[seat % COLORS.length];
+    const ring = new THREE.Mesh(KO_RING_GEO, new THREE.MeshBasicMaterial({ color: new THREE.Color(c).multiplyScalar(1.5), transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+    ring.position.set(x, 0.06, z);
+    ring.scale.setScalar(0.4);
+    this.scene.add(ring);
+    this.fx.push({ mesh: ring, life: 0.6, max: 0.6, grow: 5, fade: 0.9 });
+    this.burst(new THREE.Vector3(x, 0.3, z), 10, [c, "#ffffff"], 7, 0.45);
+  }
+
+  /** The match is won: a short burst of confetti around the winner's ball. */
+  celebrate(seat: number) {
+    const m = this.balls[seat];
+    if (!m) return;
+    const colors = [COLORS[seat % COLORS.length], "#ffffff", "#ffd166"];
+    const at = this.falling.has(seat) || this.gone.has(seat) ? new THREE.Vector3(0, 0, 0) : m.position;
+    for (let i = 0; i < 70; i++) {
+      const mesh = new THREE.Mesh(CONFETTI_GEO, confettiMat(colors[i % colors.length]));
+      mesh.position.set(at.x + (Math.random() - 0.5) * 0.6, at.y + 0.5, at.z + (Math.random() - 0.5) * 0.6);
+      mesh.rotation.set(Math.random() * 6, Math.random() * 6, Math.random() * 6);
+      this.scene.add(mesh);
+      const a = Math.random() * Math.PI * 2;
+      const out = 1.5 + Math.random() * 3;
+      this.confetti.push({
+        mesh,
+        v: new THREE.Vector3(Math.cos(a) * out, 7 + Math.random() * 5, Math.sin(a) * out),
+        spin: new THREE.Vector3(Math.random() * 10 - 5, Math.random() * 10 - 5, Math.random() * 10 - 5),
+        life: 2.2 + Math.random() * 1,
+      });
+    }
   }
 
   /** The ball starts a dash: a fading streak of afterimages behind it. */
@@ -704,7 +873,15 @@ export class ArenaView {
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
       this.update(now, dt);
-      this.renderer.render(this.scene, this.camera);
+      if (this.composer) {
+        this.composer.render(dt);
+        // drop the glow if this device can't keep up with it
+        this.slowFrames = dt > 1 / 40 ? this.slowFrames + 1 : Math.max(0, this.slowFrames - 1);
+        if (this.slowFrames > 90) {
+          this.composer.dispose();
+          this.composer = null;
+        }
+      } else this.renderer.render(this.scene, this.camera);
       this.raf = requestAnimationFrame(frame);
     };
     this.raf = requestAnimationFrame(frame);
@@ -731,8 +908,12 @@ export class ArenaView {
       const arena = a.arena + (b.arena - a.arena) * k;
       this.platform.scale.set(arena, 1, arena);
       this.rim.scale.set(arena, arena, 1);
-      if (this.starlight?.visible) this.applyArena(arena);
-      (this.rim.material as THREE.MeshBasicMaterial).color.setHSL(0.93, 1, 0.55 + 0.15 * Math.sin(now / 150) * (arena < 10 ? 1 : 0));
+      // cyan at the start, through magenta, to a pulsing red as the edge closes in
+      const heat = Math.min(1, Math.max(0, 1 - arena / RULES.arenaStart) * 1.35);
+      const pulse = arena < 6 ? 0.5 + 0.5 * Math.sin(now / 120) : 0;
+      const rc = (this.rim.material as THREE.MeshBasicMaterial).color;
+      rc.setHSL((0.52 + 0.48 * heat) % 1, 1, 0.55).multiplyScalar(1 + 0.5 * heat + pulse);
+      (this.rimGlow.material as THREE.MeshBasicMaterial).color.copy(rc);
 
       b.balls.forEach((bb, i) => {
         const m = this.balls[i];
@@ -746,6 +927,7 @@ export class ArenaView {
         }
         if (!bb.alive && !this.falling.has(i) && !(ab?.alive ?? true)) {
           this.falling.set(i, { x: bb.x, z: bb.y, y: RULES.ballRadius, vx: bb.vx, vz: bb.vy, vy: 0 });
+          this.koRing(bb.x, bb.y, i);
         }
         if (this.falling.has(i)) return;
         const x = ab.x + (bb.x - ab.x) * k;
@@ -815,6 +997,62 @@ export class ArenaView {
       return false;
     });
 
+    // soft dark spot under each ball, so it sits on the glossy floor
+    this.balls.forEach((m, i) => {
+      const blob = this.blobs[i];
+      if (!blob) return;
+      blob.visible = m.visible && !this.falling.has(i) && !this.gone.has(i);
+      blob.position.x = m.position.x;
+      blob.position.z = m.position.z;
+    });
+
+    // squash: compress along the hit direction and bulge sideways, in world space so the roll doesn't twist it
+    this.balls.forEach((m, i) => {
+      const q = this.squash.get(i);
+      if (q) q.t -= dt;
+      if (!q || q.t <= 0) {
+        if (q) this.squash.delete(i);
+        m.matrixAutoUpdate = true;
+        return;
+      }
+      const e = q.amt * Math.sin(Math.PI * (1 - q.t / q.max));
+      const c = -e - e * 0.5;
+      const { dx, dz } = q;
+      SQ.set(1 + e * 0.5 + c * dx * dx, 0, c * dx * dz, 0, 0, 1 + e * 0.5, 0, 0, c * dx * dz, 0, 1 + e * 0.5 + c * dz * dz, 0, 0, 0, 0, 1);
+      m.matrixAutoUpdate = false;
+      m.matrix.makeRotationFromQuaternion(m.quaternion).premultiply(SQ).setPosition(m.position);
+      m.matrixWorldNeedsUpdate = true;
+    });
+
+    for (const c of this.confetti) {
+      c.v.y -= 9 * dt;
+      c.v.multiplyScalar(1 - 1.8 * dt); // air drag, so it flutters down
+      c.mesh.position.addScaledVector(c.v, dt);
+      c.mesh.rotation.x += c.spin.x * dt;
+      c.mesh.rotation.y += c.spin.y * dt;
+      c.mesh.rotation.z += c.spin.z * dt;
+      c.life -= dt;
+    }
+    this.confetti = this.confetti.filter((c) => {
+      if (c.life > 0 && c.mesh.position.y > -3) return true;
+      this.scene.remove(c.mesh);
+      return false;
+    });
+
+    // motes drift in slow loops around whatever the camera is looking at
+    const centre = this.race ? this.focus : ORIGIN;
+    const mp = this.motes.geometry.attributes.position as THREE.BufferAttribute;
+    const t = now / 1000;
+    for (let i = 0; i < MOTES; i++) {
+      const s = this.moteSeed;
+      const a = s[i * 4] * Math.PI * 2 + t * (0.03 + s[i * 4 + 1] * 0.05);
+      const r = 3 + s[i * 4 + 2] * 15;
+      mp.setXYZ(i, centre.x + Math.cos(a) * r, 1 + s[i * 4 + 3] * 6 + Math.sin(t * 0.6 + i) * 0.4, centre.z + Math.sin(a) * r);
+    }
+    mp.needsUpdate = true;
+    this.sky.position.copy(this.camera.position);
+    this.sky.rotation.y = t * 0.004;
+
     if (this.you !== null && this.balls[this.you] && !this.falling.has(this.you)) {
       const p = this.balls[this.you].position;
       this.marker.visible = true;
@@ -852,6 +1090,8 @@ export class ArenaView {
     const w = this.canvas.clientWidth || innerWidth;
     const h = this.canvas.clientHeight || innerHeight;
     this.renderer.setSize(w, h, false);
+    this.composer?.setPixelRatio(this.renderer.getPixelRatio());
+    this.composer?.setSize(w, h);
     this.camera.aspect = w / h;
     // pull the camera back on narrow screens so the whole arena stays in view
     this.zoom = Math.max(1, 1.2 / this.camera.aspect);

@@ -1226,11 +1226,17 @@ function setStatus(html: string) {
 }
 
 let resultSound = "";
+let confettiFor = "";
 function showResult() {
   if (!room?.result) return;
   const r = room.result;
   const el = $("#result");
   el.hidden = false;
+  const done = `${room.matchId}:${room.round}`;
+  if (done !== confettiFor && r.winnerSeat !== null) {
+    confettiFor = done;
+    view.celebrate(r.winnerSeat);
+  }
   const youWon = r.winnerSeat !== null && r.winnerSeat === room.you;
   const key = `${room.matchId}:${room.round}`;
   if (key !== resultSound && room.you !== null && r.winnerSeat !== null) {
