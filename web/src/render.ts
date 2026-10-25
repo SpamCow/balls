@@ -364,7 +364,7 @@ export class ArenaView {
       const bc = new EffectComposer(this.renderer);
       bc.renderToScreen = false;
       bc.addPass(new RenderPass(this.scene, this.camera));
-      bc.addPass(new UnrealBloomPass(new THREE.Vector2(256, 256), 0.4, 0.4, 0.85));
+      bc.addPass(new UnrealBloomPass(new THREE.Vector2(256, 256), 0.3, 0.35, 0.88));
       const c = new EffectComposer(this.renderer);
       c.addPass(new RenderPass(this.scene, this.camera));
       const mix = new ShaderPass(
@@ -418,11 +418,11 @@ export class ArenaView {
     panels.repeat.set(40, 1);
     const wall = new THREE.Mesh(
       new THREE.CylinderGeometry(R + 0.15, R + 0.15, H, 120, 1, true),
-      new THREE.MeshStandardMaterial({ color: "#26305e", metalness: 0.5, roughness: 0.35, emissiveMap: panels, emissive: "#ffffff", emissiveIntensity: 0.8, transparent: true, opacity: 0.82, side: THREE.DoubleSide, depthWrite: false }),
+      new THREE.MeshStandardMaterial({ color: "#26305e", metalness: 0.5, roughness: 0.35, emissiveMap: panels, emissive: "#ffffff", emissiveIntensity: 0.45, transparent: true, opacity: 0.82, side: THREE.DoubleSide, depthWrite: false }),
     );
     wall.position.y = H / 2;
     g.add(wall);
-    const rail = new THREE.MeshBasicMaterial({ color: new THREE.Color("#7af0ff").multiplyScalar(1.2) });
+    const rail = new THREE.MeshBasicMaterial({ color: new THREE.Color("#7af0ff").multiplyScalar(0.55) });
     const top = new THREE.Mesh(new THREE.TorusGeometry(R + 0.15, 0.1, 8, 128), rail);
     top.rotation.x = Math.PI / 2;
     top.position.y = H;

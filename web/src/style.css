@@ -200,6 +200,8 @@ dialog::backdrop { background: #0008; }
 .no-paid .paid-only { display: none !important; }
 .no-paid .boards { grid-template-columns: 1fr; }
 body:not(.no-paid) .free-only { display: none !important; }
+/* sign-in turned off by the site owner (SIGN_IN setting) */
+.no-signin .signin-only { display: none !important; }
 .players-total { font-size: 0.85rem; font-weight: 500; color: var(--muted); margin-left: 8px; }
 .leaders { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .leaders li { display: grid; grid-template-columns: 2rem 1fr auto; align-items: center; gap: 8px; }

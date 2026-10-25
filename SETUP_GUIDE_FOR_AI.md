@@ -400,6 +400,7 @@ Either is far more than Render Starter. The game runs on one CPU core, and 100 p
 | `FEE_RECIPIENT` | the deployer | Required on mainnet unless `FEE_SPLIT` is set |
 | `FEE_SPLIT` | not set | `0xA:69,0xB:31` |
 | `MAX_BET_ETH` | `1` | Biggest entry a player can pick |
+| `SIGN_IN` | on, but off on Render | `on` shows the Sign in button (Privy), usernames and leaderboards. `off` hides them and also turns paid play off. **Hosting on Render? Set `SIGN_IN=on`** |
 | `PAID_PLAY` | on, but off on Render | `on` shows "Play for ETH", `off` hides it and refuses new paid matches (refunds and payouts for earlier matches keep running). **Hosting on Render? Set `PAID_PLAY=on`** |
 | `RPC_URL` | public RPC | |
 | `PRIVY_APP_ID` | not set | **Required.** Email/Google sign-in and players' built-in wallets |

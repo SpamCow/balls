@@ -13,9 +13,9 @@
     <header class="top">
       <div class="brand"><span class="logo"></span>Bumper Balls</div>
       <div class="top-right">
-        <span id="net" class="pill net"></span>
+        <span id="net" class="pill net signin-only"></span>
         <button id="mute-btn" class="mute-btn" type="button"></button>
-        <button id="wallet-btn" class="btn">Connect wallet</button>
+        <button id="wallet-btn" class="btn signin-only">Connect wallet</button>
       </div>
     </header>
 
@@ -64,8 +64,8 @@
       <section id="mine" class="panel"></section>
       </div>
 
-      <h3>Top players <span id="players-total" class="players-total" hidden></span></h3>
-      <div class="boards">
+      <h3 class="signin-only">Top players <span id="players-total" class="players-total" hidden></span></h3>
+      <div class="boards signin-only">
         <section class="panel"><h4>Top 10 free</h4><div id="leaders-free"><p class="muted small">No one yet. Sign in, pick a username and win a free match to get on here.</p></div></section>
         <section class="panel paid-only"><h4>Top 10 paid</h4><div id="leaders-paid"><p class="muted small">No one yet. Win a match played for ETH to get on here.</p></div></section>
       </div>

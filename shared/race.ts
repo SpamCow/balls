@@ -7,13 +7,13 @@ import { BATTLE, WEAPONS, AMMO, createBattleSim, useWeapon, runWeapon, projectil
 
 export const RACE = {
   laps: 3,
-  halfWidth: 4.5, // track half-width; a ball drops once its centre is edgeGrace past the edge
+  halfWidth: 6.2, // track half-width; a ball drops once its centre is edgeGrace past the edge
   edgeGrace: 0.4,
   fallSec: 1.3, // time off the track before you're put back
   spinSec: 1.2, // out of HP: you spin out for this long, then get your HP back
   hardLimit: 240, // seconds; whoever is furthest round wins
   boxAt: [0.16, 0.45, 0.74], // ❓ box rows, as a fraction of the lap
-  boxLanes: [-2.6, 0, 2.6],
+  boxLanes: [-3.6, 0, 3.6],
   boxR: 0.6,
   boxBack: 3, // seconds before a taken box reappears
   step: 0.5, // spacing of the track's centre-line samples
@@ -86,11 +86,12 @@ export function locate(x: number, y: number, hint = -1) {
 
 export const onTrack = (x: number, y: number) => Math.abs(locate(x, y).off) < RACE.halfWidth + 0.5;
 
-/** Starting grid: two by two, behind the line. back = samples behind it. */
+/** Starting grid: everyone side by side in one row behind the line (the first two in the middle). back = samples behind it. */
+const GRID_LANES = [1.2, -1.2, 3.6, -3.6];
 export function gridSpot(i: number) {
-  const back = 5 + Math.floor(i / 2) * 5;
+  const back = 5;
   const p = TRACK[wrap(-back)];
-  const lane = i % 2 ? -1.8 : 1.8;
+  const lane = GRID_LANES[i % GRID_LANES.length];
   return { back, x: p.x - p.ty * lane, y: p.y + p.tx * lane };
 }
 

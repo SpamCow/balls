@@ -15,9 +15,11 @@ import { createPlayerCount, createProfiles } from "./profiles";
 import { syncFees } from "./fees";
 
 const env = loadEnv();
-// Paid play switch. PAID_PLAY=on or PAID_PLAY=off decides; with neither, it's off on Render (the
-// test copy) and on everywhere else. Off only hides it: refunds and payouts for earlier matches keep running.
-const PAID_PLAY = process.env.PAID_PLAY ? /^(on|yes|true|1)$/i.test(process.env.PAID_PLAY.trim()) : !process.env.RENDER;
+// Feature switches for the Render test copy. SIGN_IN and PAID_PLAY take on or off; unset, each is off on
+// Render and on everywhere else. Off only hides the feature: refunds and payouts for earlier matches keep running.
+const switchOn = (v: string | undefined) => (v ? /^(on|yes|true|1)$/i.test(v.trim()) : !process.env.RENDER);
+const SIGN_IN = switchOn(process.env.SIGN_IN);
+const PAID_PLAY = SIGN_IN && switchOn(process.env.PAID_PLAY); // paying needs a signed-in wallet
 const PORT = Number(process.env.PORT || 8787);
 const STATIC_DIR = path.resolve(process.env.STATIC_DIR || "web/dist");
 const DATA_DIR = process.env.DATA_DIR || "";
@@ -282,7 +284,8 @@ const server = http.createServer(async (req, res) => {
         paidPlay: PAID_PLAY,
         signer: signerAddress(env),
         walletConnectProjectId: env.WALLETCONNECT_PROJECT_ID || null,
-        privyAppId: process.env.PRIVY_APP_ID || null,
+        privyAppId: SIGN_IN ? process.env.PRIVY_APP_ID || null : null,
+        signIn: SIGN_IN,
         bets: { presets: PRESET_BETS, min: formatEther(MIN_BET_WEI), max: formatEther(MAX_BET_WEI) },
       });
     }

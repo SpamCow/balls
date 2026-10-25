@@ -21,6 +21,8 @@ type Config = {
   walletConnectProjectId: string | null;
   privyAppId: string | null;
   bets: { presets: string[]; min: string; max: string };
+  /** false when the site owner turned sign-in off (SIGN_IN setting) */
+  signIn?: boolean;
   /** false when the site owner turned paid play off (PAID_PLAY setting) */
   paidPlay?: boolean;
   paid: { state: "checking" | "needs-funds" | "deploying" | "live" | "error"; deployer?: Address; balance?: string; message?: string };
@@ -1300,6 +1302,7 @@ function beginFriends() {
 async function boot() {
   cfg = await (await fetch("/api/config")).json();
   document.body.classList.toggle("no-paid", cfg.paidPlay === false);
+  document.body.classList.toggle("no-signin", cfg.signIn === false);
   // until the escrow is live, keep checking so the bet buttons unlock without a reload
   const watchPaid = setInterval(async () => {
     if (cfg.paid?.state === "live") return clearInterval(watchPaid);
