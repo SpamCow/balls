@@ -15,9 +15,11 @@ import { createPlayerCount, createProfiles } from "./profiles";
 import { syncFees } from "./fees";
 
 const env = loadEnv();
-// Feature switches for the Render test copy. SIGN_IN and PAID_PLAY take on or off; unset, each is off on
-// Render and on everywhere else. Off only hides the feature: refunds and payouts for earlier matches keep running.
-const switchOn = (v: string | undefined) => (v ? /^(on|yes|true|1)$/i.test(v.trim()) : !process.env.RENDER);
+// Feature switches. SIGN_IN and PAID_PLAY take on or off; unset, both are on, except on the original
+// developer's test copy (bumper-balls.onrender.com), where they're hidden. Off only hides the feature:
+// refunds and payouts for earlier matches keep running.
+const TEST_COPY = process.env.RENDER_EXTERNAL_HOSTNAME === "bumper-balls.onrender.com";
+const switchOn = (v: string | undefined) => (v ? /^(on|yes|true|1)$/i.test(v.trim()) : !TEST_COPY);
 const SIGN_IN = switchOn(process.env.SIGN_IN);
 const PAID_PLAY = SIGN_IN && switchOn(process.env.PAID_PLAY); // paying needs a signed-in wallet
 const PORT = Number(process.env.PORT || 8787);

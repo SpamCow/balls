@@ -52,6 +52,7 @@ If the owner received the repository itself (a GitHub transfer of `SpamCow/balls
 - The platform starts shrinking 3 seconds in and stops at its smallest size at 70 seconds. A ball falls once most of it hangs over the edge.
 - Controls: WASD or arrow keys, Space to dash. Phones get a touch joystick and a dash button.
 - Sounds are made in the browser, and there's a mute button.
+- Look: everything is drawn by the game itself (no 3D model files). A glossy neon arena whose rim shifts from cyan to red as it closes in, a starfield backdrop, shiny balls that squash on hits, a soft glow on the rim, trails and sparks (switched off on phones and slow computers), a ring of light where a ball goes out, and confetti for the winner. Weapons (rocket, hammer, mines, laser bolts) are detailed models built in code. All of it is in `web/src/render.ts`.
 
 **Modes:**
 
@@ -400,8 +401,8 @@ Either is far more than Render Starter. The game runs on one CPU core, and 100 p
 | `FEE_RECIPIENT` | the deployer | Required on mainnet unless `FEE_SPLIT` is set |
 | `FEE_SPLIT` | not set | `0xA:69,0xB:31` |
 | `MAX_BET_ETH` | `1` | Biggest entry a player can pick |
-| `SIGN_IN` | on, but off on Render | `on` shows the Sign in button (Privy), usernames and leaderboards. `off` hides them and also turns paid play off. **Hosting on Render? Set `SIGN_IN=on`** |
-| `PAID_PLAY` | on, but off on Render | `on` shows "Play for ETH", `off` hides it and refuses new paid matches (refunds and payouts for earlier matches keep running). **Hosting on Render? Set `PAID_PLAY=on`** |
+| `SIGN_IN` | on | `off` hides the Sign in button (Privy), usernames and leaderboards, and also turns paid play off. Leave it unset normally |
+| `PAID_PLAY` | on | `off` hides "Play for ETH" and refuses new paid matches (refunds and payouts for earlier matches keep running). Handy for pausing paid play without taking the site down |
 | `RPC_URL` | public RPC | |
 | `PRIVY_APP_ID` | not set | **Required.** Email/Google sign-in and players' built-in wallets |
 | `WALLETCONNECT_PROJECT_ID` | not set | Optional. A free project ID from cloud.reown.com for the WalletConnect (phone wallet) option; without it Privy uses its shared one |
