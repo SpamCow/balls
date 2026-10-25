@@ -5,6 +5,7 @@ import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { SNAP_STRIDE, RULES } from "../../shared/physics";
 import { BATTLE, WEAPONS, type BattleSnap } from "../../shared/battle";
 import { COLORS } from "../../shared/config";
@@ -149,6 +150,7 @@ const blobMat = () =>
     depthWrite: false,
   }));
 const SQ = new THREE.Matrix4();
+const BLACK = new THREE.MeshBasicMaterial({ color: "#000000" });
 const ORIGIN = new THREE.Vector3();
 
 type Fx = { mesh: THREE.Mesh; life: number; max: number; grow: number; fade: number };
@@ -247,6 +249,8 @@ export class ArenaView {
   private motes: THREE.Points;
   private moteSeed: Float32Array;
   private composer: EffectComposer | null = null; // soft glow; null on weak devices
+  private bloomComposer: EffectComposer | null = null; // renders only the glowing parts (balls blacked out)
+  private darkened = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
   private slowFrames = 0;
   private blobs: THREE.Mesh[] = [];
   private squash = new Map<number, { t: number; max: number; amt: number; dx: number; dz: number }>();
@@ -355,10 +359,27 @@ export class ArenaView {
     // soft glow on bright things (rim, trails, sparks); skipped on phones and weak machines
     const coarse = matchMedia("(pointer: coarse)").matches;
     if (!coarse && (navigator.hardwareConcurrency ?? 4) >= 4) {
+      // glow is worked out on a copy of the frame with the balls blacked out, then added on top,
+      // so the rim, trails and sparks glow but the players don't
+      const bc = new EffectComposer(this.renderer);
+      bc.renderToScreen = false;
+      bc.addPass(new RenderPass(this.scene, this.camera));
+      bc.addPass(new UnrealBloomPass(new THREE.Vector2(256, 256), 0.4, 0.4, 0.85));
       const c = new EffectComposer(this.renderer);
       c.addPass(new RenderPass(this.scene, this.camera));
-      c.addPass(new UnrealBloomPass(new THREE.Vector2(256, 256), 0.55, 0.45, 0.82));
+      const mix = new ShaderPass(
+        new THREE.ShaderMaterial({
+          uniforms: { baseTexture: { value: null }, bloomTexture: { value: bc.renderTarget2.texture } },
+          vertexShader: "varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
+          fragmentShader:
+            "uniform sampler2D baseTexture; uniform sampler2D bloomTexture; varying vec2 vUv; void main() { gl_FragColor = texture2D(baseTexture, vUv) + vec4(texture2D(bloomTexture, vUv).rgb, 0.0); }",
+        }),
+        "baseTexture",
+      );
+      mix.needsSwap = true;
+      c.addPass(mix);
       c.addPass(new OutputPass());
+      this.bloomComposer = bc;
       this.composer = c;
     }
 
@@ -378,16 +399,38 @@ export class ArenaView {
     g.visible = false;
     this.scene.add(g);
     const R = BATTLE.arena;
+    // a solid-looking barrier: metal panels with glowing seams, a bright top rail and a lit base
+    const H = 1.3;
+    const panels = canvasTexture(128, 64, (c) => {
+      const grad = c.createLinearGradient(0, 0, 0, 64);
+      grad.addColorStop(0, "#5ee7ff");
+      grad.addColorStop(0.08, "#0b1030");
+      grad.addColorStop(0.85, "#0b1030");
+      grad.addColorStop(1, "#2a8fb0");
+      c.fillStyle = grad;
+      c.fillRect(0, 0, 128, 64);
+      c.fillStyle = "#5ee7ff";
+      c.fillRect(0, 0, 3, 64); // seam between panels
+      c.fillStyle = "rgba(94,231,255,0.35)";
+      c.fillRect(20, 26, 88, 2); // a faint stripe across each panel
+    });
+    panels.wrapS = THREE.RepeatWrapping;
+    panels.repeat.set(40, 1);
     const wall = new THREE.Mesh(
-      new THREE.CylinderGeometry(R + 0.15, R + 0.15, 1.1, 96, 1, true),
-      new THREE.MeshStandardMaterial({ color: "#5ee7ff", transparent: true, opacity: 0.22, side: THREE.DoubleSide, emissive: "#1aa6c9", emissiveIntensity: 0.4 }),
+      new THREE.CylinderGeometry(R + 0.15, R + 0.15, H, 120, 1, true),
+      new THREE.MeshStandardMaterial({ color: "#26305e", metalness: 0.5, roughness: 0.35, emissiveMap: panels, emissive: "#ffffff", emissiveIntensity: 0.8, transparent: true, opacity: 0.82, side: THREE.DoubleSide, depthWrite: false }),
     );
-    wall.position.y = 0.55;
+    wall.position.y = H / 2;
     g.add(wall);
-    const top = new THREE.Mesh(new THREE.TorusGeometry(R + 0.15, 0.09, 8, 128), new THREE.MeshBasicMaterial({ color: new THREE.Color("#7af0ff").multiplyScalar(1.6) }));
+    const rail = new THREE.MeshBasicMaterial({ color: new THREE.Color("#7af0ff").multiplyScalar(1.2) });
+    const top = new THREE.Mesh(new THREE.TorusGeometry(R + 0.15, 0.1, 8, 128), rail);
     top.rotation.x = Math.PI / 2;
-    top.position.y = 1.1;
+    top.position.y = H;
     g.add(top);
+    const base = new THREE.Mesh(new THREE.TorusGeometry(R + 0.1, 0.05, 6, 128), rail);
+    base.rotation.x = Math.PI / 2;
+    base.position.y = 0.03;
+    g.add(base);
     this.hole = new THREE.Mesh(new THREE.CircleGeometry(1, 64), new THREE.MeshBasicMaterial({ color: "#020208" }));
     this.hole.rotation.x = -Math.PI / 2;
     this.hole.position.y = 0.015;
@@ -873,18 +916,40 @@ export class ArenaView {
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
       this.update(now, dt);
-      if (this.composer) {
+      if (this.composer && this.bloomComposer) {
+        this.darkenPlayers(true);
+        this.bloomComposer.render(dt);
+        this.darkenPlayers(false);
         this.composer.render(dt);
         // drop the glow if this device can't keep up with it
         this.slowFrames = dt > 1 / 40 ? this.slowFrames + 1 : Math.max(0, this.slowFrames - 1);
         if (this.slowFrames > 90) {
           this.composer.dispose();
-          this.composer = null;
+          this.bloomComposer.dispose();
+          this.composer = this.bloomComposer = null;
         }
       } else this.renderer.render(this.scene, this.camera);
       this.raf = requestAnimationFrame(frame);
     };
     this.raf = requestAnimationFrame(frame);
+  }
+
+  /** Swap the balls (and the marker over yours) to plain black for the glow pass, and back. */
+  private darkenPlayers(on: boolean) {
+    if (on) {
+      const hide = (o: THREE.Object3D) => {
+        const m = o as THREE.Mesh;
+        if (m.isMesh) {
+          this.darkened.set(m, m.material);
+          m.material = BLACK;
+        }
+      };
+      for (const b of this.balls) b.traverse(hide);
+      hide(this.marker);
+    } else {
+      for (const [m, mat] of this.darkened) m.material = mat;
+      this.darkened.clear();
+    }
   }
 
   stop() {
@@ -912,7 +977,7 @@ export class ArenaView {
       const heat = Math.min(1, Math.max(0, 1 - arena / RULES.arenaStart) * 1.35);
       const pulse = arena < 6 ? 0.5 + 0.5 * Math.sin(now / 120) : 0;
       const rc = (this.rim.material as THREE.MeshBasicMaterial).color;
-      rc.setHSL((0.52 + 0.48 * heat) % 1, 1, 0.55).multiplyScalar(1 + 0.5 * heat + pulse);
+      rc.setHSL((0.52 + 0.48 * heat) % 1, 1, 0.55).multiplyScalar(0.9 + 0.4 * heat + pulse * 0.8);
       (this.rimGlow.material as THREE.MeshBasicMaterial).color.copy(rc);
 
       b.balls.forEach((bb, i) => {
@@ -1092,6 +1157,8 @@ export class ArenaView {
     this.renderer.setSize(w, h, false);
     this.composer?.setPixelRatio(this.renderer.getPixelRatio());
     this.composer?.setSize(w, h);
+    this.bloomComposer?.setPixelRatio(this.renderer.getPixelRatio());
+    this.bloomComposer?.setSize(w, h);
     this.camera.aspect = w / h;
     // pull the camera back on narrow screens so the whole arena stays in view
     this.zoom = Math.max(1, 1.2 / this.camera.aspect);
