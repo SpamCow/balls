@@ -15,6 +15,9 @@ import { createPlayerCount, createProfiles } from "./profiles";
 import { syncFees } from "./fees";
 
 const env = loadEnv();
+// Paid play switch. PAID_PLAY=on or PAID_PLAY=off decides; with neither, it's off on Render (the
+// test copy) and on everywhere else. Off only hides it: refunds and payouts for earlier matches keep running.
+const PAID_PLAY = process.env.PAID_PLAY ? /^(on|yes|true|1)$/i.test(process.env.PAID_PLAY.trim()) : !process.env.RENDER;
 const PORT = Number(process.env.PORT || 8787);
 const STATIC_DIR = path.resolve(process.env.STATIC_DIR || "web/dist");
 const DATA_DIR = process.env.DATA_DIR || "";
@@ -68,6 +71,7 @@ const newCode = () => Array.from(crypto.getRandomValues(new Uint8Array(5)), (b) 
 async function queuePaid(tierId: string, address: Address, stale?: string) {
   const tier = parseTier(tierId, MAX_BET_WEI);
   if (typeof tier === "string") return { status: 400, body: { error: tier } };
+  if (!PAID_PLAY) return { status: 503, body: { error: "Paid matches are turned off on this site." } };
   if (contract.state !== "live") return { status: 503, body: { error: "Paid matches aren't open yet." } };
   const now = Math.floor(Date.now() / 1000);
   let room = rooms.get(currentTier.get(tier.id) ?? "");
@@ -275,6 +279,7 @@ const server = http.createServer(async (req, res) => {
         contract: contract.address,
         oldContracts: env.OLD_CONTRACTS,
         paid: contract,
+        paidPlay: PAID_PLAY,
         signer: signerAddress(env),
         walletConnectProjectId: env.WALLETCONNECT_PROJECT_ID || null,
         privyAppId: process.env.PRIVY_APP_ID || null,
@@ -303,7 +308,7 @@ const server = http.createServer(async (req, res) => {
       const r = await queuePaid(String(body.tierId), address, body.stale);
       return sendJson(res, r.status, r.body);
     }
-    if (p === "/api/open") return sendJson(res, 200, openMatches());
+    if (p === "/api/open") return sendJson(res, 200, PAID_PLAY ? openMatches() : []);
     if (p === "/api/practice" && req.method === "POST") return sendJson(res, 200, { roomId: practiceRoom(url.searchParams.get("variant") === "race" ? "race" : url.searchParams.get("battle") === "1" ? "battle" : "classic") });
     if (p === "/api/friends" && req.method === "POST") return sendJson(res, 200, { roomId: friendsRoom() });
     const m = p.match(/^\/api\/match\/([^/]+)$/);

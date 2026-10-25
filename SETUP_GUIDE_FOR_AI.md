@@ -59,7 +59,7 @@ If the owner received the repository itself (a GitHub transfer of `SpamCow/balls
 - **Quick game vs bots** (free).
 - **Battle mode** (free with **Battle vs bots** or the Mode picker in a friends room, and also as a paid match). A walled arena with a hole in the middle; everyone has 100 HP. Crates give a random self-aiming weapon (hammer, laser rifle, magnet, spike shell, homing rocket, mines), used with E/Shift or the phone weapon button. The hole grows from 75 s; at 120 s the most HP wins. All tuning numbers are in the `BATTLE` constant in `shared/battle.ts`.
 - **Race mode** (free with **Race vs bots** or the Mode picker in a friends room, and also as a paid match). Three laps of a track with no walls: run off the edge and you're put back where you fell about a second later. Rows of ❓ boxes hand out the battle weapons, and running out of HP spins you out briefly instead of knocking you out. First across the line wins; if nobody finishes in 4 minutes, whoever is furthest round wins. The track and tuning are in `shared/race.ts` (`CONTROL` is the track shape, `RACE` the numbers).
-- **Paid matches** (optional): the player picks classic, battle or race, 1 vs 1, 3 or 4 players, and any entry from 0.0001 ETH up to `MAX_BET_ETH` (default 1). Shortcut buttons offer 0.001, 0.01 and 0.1. Players who pick the same settings land in the same match, and the lobby lists matches still waiting for players. Winner takes the pot minus a 5% house cut.
+- **Paid matches** (optional; turn them on or off with the `PAID_PLAY` setting, see Settings): the player picks classic, battle or race, 1 vs 1, 3 or 4 players, and any entry from 0.0001 ETH up to `MAX_BET_ETH` (default 1). Shortcut buttons offer 0.001, 0.01 and 0.1. Players who pick the same settings land in the same match, and the lobby lists matches still waiting for players. Winner takes the pot minus a 5% house cut.
 
 **Players:**
 
@@ -400,6 +400,7 @@ Either is far more than Render Starter. The game runs on one CPU core, and 100 p
 | `FEE_RECIPIENT` | the deployer | Required on mainnet unless `FEE_SPLIT` is set |
 | `FEE_SPLIT` | not set | `0xA:69,0xB:31` |
 | `MAX_BET_ETH` | `1` | Biggest entry a player can pick |
+| `PAID_PLAY` | on, but off on Render | `on` shows "Play for ETH", `off` hides it and refuses new paid matches (refunds and payouts for earlier matches keep running). **Hosting on Render? Set `PAID_PLAY=on`** |
 | `RPC_URL` | public RPC | |
 | `PRIVY_APP_ID` | not set | **Required.** Email/Google sign-in and players' built-in wallets |
 | `WALLETCONNECT_PROJECT_ID` | not set | Optional. A free project ID from cloud.reown.com for the WalletConnect (phone wallet) option; without it Privy uses its shared one |

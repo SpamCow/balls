@@ -21,8 +21,10 @@
 
     <main id="home" hidden>
       <section class="hero">
-        <h1>Last ball standing<br />takes the pot.</h1>
-        <p class="muted">Everyone pays the same entry into the smart contract. Shove the other balls off a platform that keeps shrinking. Play free with friends, or put ETH on it and the winner takes the pot.</p>
+        <h1 class="paid-only">Last ball standing<br />takes the pot.</h1>
+        <p class="muted paid-only">Everyone pays the same entry into the smart contract. Shove the other balls off a platform that keeps shrinking. Play free with friends, or put ETH on it and the winner takes the pot.</p>
+        <h1 class="free-only">Last ball<br />standing wins.</h1>
+        <p class="muted free-only">Shove the other balls off a platform that keeps shrinking. Play with friends or jump in against bots.</p>
         <div class="hero-acts">
           <button id="friends-btn" class="btn big-btn">Play with friends</button>
           <button id="practice-btn" class="btn big-btn ghost">Quick game vs bots</button>
@@ -39,6 +41,7 @@
         </div>
       </section>
 
+      <div class="paid-only">
       <h3 id="paid-title">Play for ETH</h3>
       <p id="paid-note" class="muted small" hidden></p>
       <section id="bet" class="panel bet">
@@ -59,14 +62,15 @@
 
       <h3>Your matches</h3>
       <section id="mine" class="panel"></section>
+      </div>
 
       <h3>Top players <span id="players-total" class="players-total" hidden></span></h3>
       <div class="boards">
         <section class="panel"><h4>Top 10 free</h4><div id="leaders-free"><p class="muted small">No one yet. Sign in, pick a username and win a free match to get on here.</p></div></section>
-        <section class="panel"><h4>Top 10 paid</h4><div id="leaders-paid"><p class="muted small">No one yet. Win a match played for ETH to get on here.</p></div></section>
+        <section class="panel paid-only"><h4>Top 10 paid</h4><div id="leaders-paid"><p class="muted small">No one yet. Win a match played for ETH to get on here.</p></div></section>
       </div>
 
-      <section class="how panel">
+      <section class="how panel paid-only">
         <h3>How it's kept fair</h3>
         <ul>
           <li>The game server runs the physics. Your browser only sends which way you're steering, so nobody can cheat by editing the game.</li>
