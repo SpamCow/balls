@@ -251,3 +251,12 @@ html { touch-action: manipulation; -webkit-text-size-adjust: 100%; }
 .net.up { color: #4ade80; }
 .net.down { color: #f87171; }
 .seat .net { margin-left: 2px; }
+
+/* cinematic spectator camera */
+.cine-bar { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: center; max-width: calc(100% - 24px); }
+#match.cine-clean .hud, #match.cine-clean .stick, #match.cine-clean .dash-btn, #match.cine-clean .use-btn { display: none !important; }
+body.cine-clean header.top { display: none; }
+body.cine-clean #match { inset: 0; }
+#match.cine-on canvas { cursor: grab; }
+#match.cine-clean #arena { height: 100%; }
+#match.cine-on #friends-bar { display: none; }

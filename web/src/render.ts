@@ -7,6 +7,7 @@ import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
+import { CineCam, type CineMode } from "./cinecam";
 import { SNAP_STRIDE, RULES } from "../../shared/physics";
 import { BATTLE, WEAPONS, type BattleSnap } from "../../shared/battle";
 import { COLORS } from "../../shared/config";
@@ -254,6 +255,7 @@ export class ArenaView {
   private darkened = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
   private slowFrames = 0;
   private blobs: THREE.Mesh[] = [];
+  readonly cine: CineCam;
   private squash = new Map<number, { t: number; max: number; amt: number; dx: number; dz: number }>();
   private confetti: { mesh: THREE.Mesh; v: THREE.Vector3; spin: THREE.Vector3; life: number }[] = [];
   private gone = new Set<number>(); // knocked out (popped, not fallen)
@@ -272,6 +274,7 @@ export class ArenaView {
 
   constructor(private canvas: HTMLCanvasElement, public interpMs = 90) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+    this.cine = new CineCam(canvas);
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -1195,6 +1198,22 @@ export class ArenaView {
       this.marker.position.set(p.x, p.y + 2 + Math.sin(now / 200) * 0.15, p.z);
     } else this.marker.visible = false;
 
+    if (this.cine.active) {
+      const s = this.snaps[this.snaps.length - 1];
+      const info = this.balls.map((m, i) => ({
+        x: m.position.x,
+        y: m.position.y,
+        z: m.position.z,
+        vx: s?.balls[i]?.vx ?? 0,
+        vz: s?.balls[i]?.vy ?? 0,
+        alive: m.visible && !this.falling.has(i) && !this.gone.has(i),
+      }));
+      const f = this.cine.update(dt, this.camera, info);
+      this.sun.position.set(f.x - 8, 20, f.z + 6);
+      this.sun.target.position.copy(f);
+      return;
+    }
+
     const z = this.zoom;
     if (this.race) {
       // follow your ball (or the leader when watching), without turning, so the controls stay screen-relative
@@ -1222,6 +1241,27 @@ export class ArenaView {
     this.sun.target.position.set(0, 0, 0);
   }
 
+  setCineMode(mode: CineMode) {
+    this.cine.setMode(mode, this.camera);
+  }
+
+  /** Follow the next player in "follow" shots. */
+  cineNext() {
+    const n = Math.max(1, this.balls.length);
+    for (let k = 1; k <= n; k++) {
+      const i = (this.cine.target + k) % n;
+      if (this.balls[i]?.visible && !this.falling.has(i) && !this.gone.has(i)) return void (this.cine.target = i);
+    }
+  }
+
+  /** Cinematic camera on or off (spectators). Pushes the fog back so wide shots stay clear. */
+  setCine(on: boolean) {
+    if (on === this.cine.active) return;
+    if (on) this.cine.start(this.camera);
+    else this.cine.stop();
+    this.resize();
+  }
+
   private resize() {
     const w = this.canvas.clientWidth || innerWidth;
     const h = this.canvas.clientHeight || innerHeight;
@@ -1234,8 +1274,8 @@ export class ArenaView {
     // pull the camera back on narrow screens so the whole arena stays in view
     this.zoom = Math.max(1, 1.2 / this.camera.aspect);
     const fog = this.scene.fog as THREE.Fog;
-    fog.near = (this.race ? 40 : 30) * this.zoom;
-    fog.far = (this.race ? 90 : 70) * this.zoom;
+    fog.near = this.cine.active ? 70 : (this.race ? 40 : 30) * this.zoom;
+    fog.far = this.cine.active ? 160 : (this.race ? 90 : 70) * this.zoom;
     this.camera.updateProjectionMatrix();
   }
 }

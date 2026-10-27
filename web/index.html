@@ -102,6 +102,7 @@
           <button id="back" class="btn ghost small">← Lobby</button>
           <span id="pot" class="pill"></span>
           <span id="spectating" class="pill watching" hidden>👀 Spectating</span>
+          <button id="cine-btn" class="btn ghost small" hidden title="Cinematic camera (C)">🎥 Camera</button>
           <button id="share" class="btn ghost small" hidden>Copy invite link</button>
         </div>
         <div id="seats" class="seats"></div>
@@ -113,6 +114,12 @@
         </div>
         <div id="status" class="status"></div>
         <div id="result" class="result panel" hidden></div>
+        <div id="cine-bar" class="cine-bar" hidden>
+          <div class="seg" id="cine-modes"><button type="button" data-m="orbit">Orbit</button><button type="button" data-m="follow">Follow</button><button type="button" data-m="free">Fly</button><button type="button" data-m="top">Top</button></div>
+          <button type="button" id="cine-next" class="btn ghost small">Next player</button>
+          <button type="button" id="cine-clean" class="btn ghost small">Hide HUD</button>
+          <span id="cine-hint" class="muted small"></span>
+        </div>
         <div id="controls-hint" class="hint" hidden>WASD - move · Space - dash</div>
         <div id="dash-meter" class="dash-meter" hidden><span></span></div>
         <div id="weapon" class="weapon-slot" hidden></div>

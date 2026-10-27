@@ -7,6 +7,7 @@ import { MatchStatus } from "../../shared/eip712";
 import { discoverWallets, walletOptions, ensureChain, clients } from "./wallet";
 import type { PrivyApi, PrivyState } from "./privy";
 import { ArenaView, WEAPON_ICON, WEAPON_NAME } from "./render";
+import type { CineMode } from "./cinecam";
 import { createControls } from "./input";
 import * as sfx from "./sound";
 
@@ -730,6 +731,7 @@ async function openRoom(id: string) {
   $("#result").hidden = true;
   $("#match").classList.remove("spectating");
   $("#spectating").hidden = true;
+  setCine(false);
   (document.activeElement as HTMLElement | null)?.blur?.(); // keys go to the game, not a lobby text box
   setStatus("Connecting…");
   view.setPlayers(0, null);
@@ -1042,6 +1044,9 @@ function renderPhase() {
   const watching = room.you === null && room.phase !== "over" && room.phase !== "expired";
   $("#match").classList.toggle("spectating", watching);
   $("#spectating").hidden = !watching;
+  // spectators can film with the cinematic camera, and keep it through the result
+  $("#cine-btn").hidden = room.you !== null;
+  if (room.you !== null) setCine(false);
   $("#controls-hint").hidden = watching || (room.phase !== "countdown" && room.phase !== "playing");
   $("#dash-meter").hidden = room.phase !== "playing" || room.you === null;
   const battle = room.variant === "battle";
@@ -1297,6 +1302,64 @@ function beginFriends() {
   if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ t: "begin", bots: $<HTMLInputElement>("#bots").checked, variant: $<HTMLSelectElement>("#variant").value }));
 }
 
+// --------------------------------------------------------- cinematic camera
+
+const CINE_HINT: Record<CineMode, string> = {
+  orbit: "Drag to swing round · scroll to zoom · H hides the HUD",
+  follow: "Tab or Next player switches who's followed · H hides the HUD",
+  free: "WASD fly · drag to look · E/Q up and down · Shift faster · scroll sets speed · H hides the HUD",
+  top: "Overhead shot · H hides the HUD",
+};
+
+function setCine(on: boolean) {
+  view.setCine(on);
+  $("#match").classList.toggle("cine-on", on);
+  $("#cine-bar").hidden = !on;
+  $("#cine-btn").textContent = on ? "🎥 Normal view" : "🎥 Camera";
+  if (!on) setClean(false);
+  renderCineBar();
+}
+
+function renderCineBar() {
+  const m = view.cine.mode;
+  document.querySelectorAll<HTMLButtonElement>("#cine-modes button").forEach((b) => b.classList.toggle("on", b.dataset.m === m));
+  $("#cine-next").hidden = m !== "follow";
+  $("#cine-hint").textContent = CINE_HINT[m];
+}
+
+function setCineMode(m: CineMode) {
+  view.setCineMode(m);
+  renderCineBar();
+}
+
+/** Hide everything but the game, for clean recordings. H, Esc or a double-click brings it back. */
+function setClean(on: boolean) {
+  if ($("#match").classList.contains("cine-clean") === on) return;
+  $("#match").classList.toggle("cine-clean", on);
+  document.body.classList.toggle("cine-clean", on);
+  dispatchEvent(new Event("resize"));
+}
+
+function bindCine() {
+  $("#cine-btn").onclick = () => setCine(!view.cine.active);
+  document.querySelectorAll<HTMLButtonElement>("#cine-modes button").forEach((b) => (b.onclick = () => setCineMode(b.dataset.m as CineMode)));
+  $("#cine-next").onclick = () => view.cineNext();
+  $("#cine-clean").onclick = () => setClean(true);
+  $("#arena").addEventListener("dblclick", () => setClean(false));
+  const modes: Record<string, CineMode> = { Digit1: "orbit", Digit2: "follow", Digit3: "free", Digit4: "top" };
+  addEventListener("keydown", (e) => {
+    if ($("#match").hidden || room?.you !== null || (e.target as HTMLElement)?.tagName === "INPUT") return;
+    if (e.code === "KeyC" && !e.repeat) return setCine(!view.cine.active);
+    if (!view.cine.active) return;
+    if (modes[e.code]) setCineMode(modes[e.code]);
+    else if (e.code === "Tab") {
+      e.preventDefault();
+      view.cineNext();
+    } else if (e.code === "KeyH" && !e.repeat) setClean(!$("#match").classList.contains("cine-clean"));
+    else if (e.code === "Escape") setClean(false);
+  });
+}
+
 // --------------------------------------------------------------------- boot
 
 async function boot() {
@@ -1321,6 +1384,7 @@ async function boot() {
     blockExplorers: cfg.explorer ? { default: { name: "Explorer", url: cfg.explorer } } : undefined,
   });
   view = new ArenaView($<HTMLCanvasElement>("#arena"));
+  bindCine();
   view.start();
   readControls = createControls($("#match"), dashNow, useNow);
   discoverWallets(() => {});
