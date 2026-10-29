@@ -135,6 +135,10 @@ function practiceRoom(variant: Variant) {
   return room.cfg.matchId;
 }
 
+function watchRoom(variant: Variant) {
+  return makeRoom({ mode: "watch", variant, matchId: `watch-${crypto.randomUUID()}`, maxPlayers: 4 }).cfg.matchId;
+}
+
 function friendsRoom() {
   let code = newCode();
   while (rooms.has(`friends-${code}`)) code = newCode();
@@ -264,7 +268,7 @@ async function readBody(req: http.IncomingMessage): Promise<any> {
   }
 }
 
-const ROOM_ID = /^(0x[0-9a-f]{64}|practice-[0-9a-f-]{36}|friends-[a-z0-9]{5})$/;
+const ROOM_ID = /^(0x[0-9a-f]{64}|(?:practice|watch)-[0-9a-f-]{36}|friends-[a-z0-9]{5})$/;
 
 const server = http.createServer(async (req, res) => {
   try {
@@ -313,6 +317,10 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === "/api/open") return sendJson(res, 200, PAID_PLAY ? openMatches() : []);
     if (p === "/api/practice" && req.method === "POST") return sendJson(res, 200, { roomId: practiceRoom(url.searchParams.get("variant") === "race" ? "race" : url.searchParams.get("battle") === "1" ? "battle" : "classic") });
+    if (p === "/api/watch" && req.method === "POST") {
+      const v = url.searchParams.get("variant");
+      return sendJson(res, 200, { roomId: watchRoom(v === "race" || v === "battle" ? v : "classic") });
+    }
     if (p === "/api/friends" && req.method === "POST") return sendJson(res, 200, { roomId: friendsRoom() });
     const m = p.match(/^\/api\/match\/([^/]+)$/);
     if (m) {

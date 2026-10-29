@@ -30,7 +30,7 @@ type Config = {
 };
 
 type RoomState = {
-  mode: "paid" | "practice" | "friends";
+  mode: "paid" | "practice" | "friends" | "watch";
   variant?: "classic" | "battle" | "race";
   code?: string;
   names: string[];
@@ -654,6 +654,12 @@ async function joinPractice(variant: Variant = "classic") {
   openRoom(roomId);
 }
 
+async function watchBots(variant: Variant = "classic") {
+  const r = await fetch(`/api/watch?variant=${variant}`, { method: "POST" });
+  const { roomId } = await r.json();
+  openRoom(roomId);
+}
+
 async function createFriends() {
   const r = await fetch("/api/friends", { method: "POST" });
   const { roomId } = await r.json();
@@ -981,7 +987,7 @@ function onRoomMessage(msg: any) {
 
 let resetView = false;
 function playerCount(r: RoomState) {
-  if (r.mode === "practice") return r.maxPlayers;
+  if (r.mode === "practice" || r.mode === "watch") return r.maxPlayers;
   if (r.mode === "friends") return r.seats.filter((s) => s !== null).length || 1;
   return r.seats.length;
 }
@@ -992,7 +998,7 @@ function seatName(i: number) {
   const s = room.seats[i];
   const nick = room.names?.[i];
   if (i === room.you) return nick ? `${nick} (you)` : "You";
-  if (!s) return room.mode === "practice" ? "Bot (joining)" : "Open seat";
+  if (!s) return room.mode === "practice" || room.mode === "watch" ? "Bot (joining)" : "Open seat";
   if (nick) return nick;
   if (s.startsWith("guest:")) return `Guest ${i + 1}`;
   return short(s);
@@ -1004,7 +1010,7 @@ function renderSeats() {
   const n = room.maxPlayers;
   let html = "";
   for (let i = 0; i < n; i++) {
-    const filled = room.mode === "practice" ? true : room.mode === "friends" ? !!room.seats[i] || room.bots.includes(i) : i < room.seats.length;
+    const filled = room.mode === "practice" || room.mode === "watch" ? true : room.mode === "friends" ? !!room.seats[i] || room.bots.includes(i) : i < room.seats.length;
     const tag = room.mode === "paid" ? (filled ? "paid" : "open") : "";
     html += `<div class="seat ${filled ? "" : "empty"} ${i === room.you ? "me" : ""}"><span class="ball" style="background:${filled ? (room.skins?.[i] ? `center/cover url('/skins/${encodeURIComponent(room.skins[i])}')` : COLORS[i]) : "transparent"}"></span><span>${filled ? esc(seatName(i)) : "Open seat"}</span>${filled ? netTag(room.nets?.[i]) : ""}${tag ? `<span class="tag">${tag}</span>` : ""}</div>`;
   }
@@ -1012,7 +1018,9 @@ function renderSeats() {
   $("#pot").textContent =
     room.mode === "paid" && room.entryFee
       ? `${room.variant === "battle" ? "Battle · " : room.variant === "race" ? "Race · " : ""}Pot ${eth(BigInt(room.entryFee) * BigInt(room.maxPlayers))}`
-      : room.mode === "friends"
+      : room.mode === "watch"
+        ? `Watching bots · ${room.variant ?? "classic"}`
+        : room.mode === "friends"
         ? `Room ${room.code?.toUpperCase()} · ${room.variant === "classic" || !room.variant ? "" : `${room.variant} · `}free`
         : room.variant === "battle"
           ? "Battle · free"
@@ -1020,6 +1028,8 @@ function renderSeats() {
             ? "Race · free"
           : "Practice · free";
   const isHost = room.mode === "friends" && room.you !== null && room.you === room.host;
+  $("#watch-modes").hidden = room.mode !== "watch";
+  $("#watch-modes").querySelectorAll<HTMLButtonElement>("button").forEach((b) => b.classList.toggle("on", b.dataset.v === (room!.variant ?? "classic")));
   $("#friends-bar").hidden = room.mode !== "friends" || room.phase === "playing" || room.phase === "countdown";
   $("#start-btn").hidden = !isHost;
   $("#bots-label").hidden = !isHost;
@@ -1084,7 +1094,7 @@ function renderPhase() {
               : `${n} players in. Press Start when you're ready.`
             : "You're in. Waiting for the host to press Start.",
       );
-    } else setStatus("Waiting for players…");
+    } else setStatus(room.mode === "watch" ? "Bots are warming up…" : "Waiting for players…");
   } else if (room.phase === "countdown") {
     $("#share").hidden = true;
     const tick = () => {
@@ -1268,6 +1278,7 @@ function showResult() {
   }
   const isHost = room.mode === "friends" && room.you === room.host;
   if (room.mode === "friends" && !isHost) html += `<p class="muted">Waiting for the host to start the next round.</p>`;
+  if (room.mode === "watch") html += `<p class="muted">Next round starts in a few seconds.</p>`;
   html += `<div class="acts">${isHost ? `<button class="btn" id="rematch">Play again</button>` : ""}<button class="btn ghost" id="again">${room.mode === "practice" ? "Play again" : "Back to lobby"}</button></div>`;
   el.innerHTML = html;
   $("#again").onclick = () => (room?.mode === "practice" ? joinPractice(room.variant) : leaveRoom());
@@ -1442,6 +1453,8 @@ async function boot() {
   $("#battle-btn").onclick = () => joinPractice("battle");
   $("#race-btn").onclick = () => joinPractice("race");
   $("#friends-btn").onclick = createFriends;
+  $("#watch-btn").onclick = () => watchBots();
+  $("#watch-modes").querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.onclick = () => room?.variant !== b.dataset.v && watchBots(b.dataset.v as Variant)));
   $("#start-btn").onclick = beginFriends;
   $("#join-form").addEventListener("submit", (e) => {
     e.preventDefault();

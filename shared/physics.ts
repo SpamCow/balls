@@ -1,3 +1,4 @@
+import { think } from "./botbrain";
 import type { Battle, BattleEvent } from "./battle";
 import type { Race } from "./race";
 
@@ -247,23 +248,36 @@ export const SNAP_STRIDE = 6;
 
 const round = (n: number) => Math.round(n * 1000) / 1000;
 
-/** Simple practice bot: chase the nearest rival, stay away from the edge. */
+/** Practice bot: each one has its own personality and keeps switching plans (see botbrain.ts),
+ * steering a little sluggishly like a person would, and saving itself near the edge. */
 export function botInput(sim: Sim, seat: number, level = 0.8): Input {
   const me = sim.balls[seat];
-  const others = sim.balls.filter((b) => b.alive && b.seat !== seat);
-  if (!me.alive || !others.length) return { x: 0, y: 0, dash: false };
-  const target = others.reduce((m, b) => (Math.hypot(b.x - me.x, b.y - me.y) < Math.hypot(m.x - me.x, m.y - me.y) ? b : m));
-  let x = target.x - me.x;
-  let y = target.y - me.y;
+  if (!me.alive || !sim.balls.some((b) => b.alive && b.seat !== seat)) return { x: 0, y: 0, dash: false };
+  const t = think(sim, seat, sim.arena);
+  const { p } = t.m;
+  // ease towards the new heading instead of snapping to it
+  const k = 1 / p.react;
+  let x = t.m.last.x + (t.x - t.m.last.x) * k;
+  let y = t.m.last.y + (t.y - t.m.last.y) * k;
+  t.m.last = { x, y, dash: false };
+  let dash = t.dash;
   const r = Math.hypot(me.x, me.y);
   const edge = r / sim.arena;
-  if (edge > 0.7) {
+  const start = 0.82 - p.caution * 0.25;
+  if (edge > start && r > 0.01) {
     // steer back toward center, harder near the edge
-    const k = (edge - 0.7) * 6;
-    x -= (me.x / r) * k * 4;
-    y -= (me.y / r) * k * 4;
+    const f = (edge - start) * 24;
+    x -= (me.x / r) * f;
+    y -= (me.y / r) * f;
+    const out = (me.vx * me.x + me.vy * me.y) / r;
+    if (edge > 0.86 && out > 1 && sim.tick >= me.dashReadyAt && Math.random() < 0.1 + p.caution * 0.3) {
+      // about to go over: dash back in
+      x = -me.x;
+      y = -me.y;
+      dash = true;
+    }
   }
   const len = Math.hypot(x, y) || 1;
-  const dist = Math.hypot(target.x - me.x, target.y - me.y);
-  return { x: (x / len) * level, y: (y / len) * level, dash: dist < 4 && Math.random() < 0.03 };
+  const g = Math.min(1, level * p.throttle);
+  return { x: (x / len) * g, y: (y / len) * g, dash };
 }

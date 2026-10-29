@@ -260,3 +260,4 @@ body.cine-clean #match { inset: 0; }
 #match.cine-on canvas { cursor: grab; }
 #match.cine-clean #arena { height: 100%; }
 #match.cine-on #friends-bar { display: none; }
+#watch-modes button { padding: 5px 10px; font-size: 0.8rem; }

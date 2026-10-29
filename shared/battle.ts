@@ -2,6 +2,7 @@
 // edges, and weapon crates. Runs on the game server like the classic rules;
 // every weapon aims itself, so the only control is one "use" button.
 import { RULES, TICK_HZ, DT, createSim, drive, collide, dashing, finish, type Sim, type Ball, type Input } from "./physics";
+import { think } from "./botbrain";
 
 export const WEAPONS = ["hammer", "laser", "magnet", "spikes", "rocket", "mine"] as const;
 export type Weapon = (typeof WEAPONS)[number];
@@ -445,45 +446,65 @@ export function battleSnapshot(sim: Sim) {
 }
 export type BattleSnap = ReturnType<typeof battleSnapshot>;
 
-/** Practice bot for battle mode: grab crates, use weapons near people, stay out of the hole. */
+/** Practice bot for battle mode: its own personality and plans (botbrain.ts), grabs crates, uses weapons
+ * near people, stays out of the hole. */
 export function battleBotInput(sim: Sim, seat: number, level = 0.8): Input {
   const B = sim.battle!;
   const me = sim.balls[seat];
   const f = B.f[seat];
   const foe = nearestFoe(sim, seat, me);
   if (!me.alive || !foe) return { x: 0, y: 0, dash: false };
+  const t = think(sim, seat, BATTLE.arena, B.hole);
+  const { p } = t.m;
   const foeD = dist(foe, me);
-  let goal: { x: number; y: number } = foe;
+  let x = t.x;
+  let y = t.y;
+  let dash = t.dash;
   if (!f.weapon) {
     const crate = B.crates.reduce<{ x: number; y: number } | null>((m, c) => (!m || dist(c, me) < dist(m, me) ? c : m), null);
-    if (crate && dist(crate, me) < foeD * 1.3) goal = crate;
+    if (crate && dist(crate, me) < foeD * p.crateGreed) {
+      const cl = dist(crate, me) || 1;
+      [x, y] = [(crate.x - me.x) / cl, (crate.y - me.y) / cl];
+      dash = false;
+    }
   }
-  let x = goal.x - me.x;
-  let y = goal.y - me.y;
   const running = activeWeapon(sim, seat);
-  if (running === "hammer" && goal === foe && foeD < 5) {
+  const tgt = t.target ?? foe;
+  const tD = dist(tgt, me);
+  if (running === "hammer" && tD < 5) {
     // circle the target so the hammer spins up
-    const len = Math.hypot(x, y) || 1;
-    [x, y] = [-y / len + (x / len) * 0.3, x / len + (y / len) * 0.3];
+    const len = tD || 1;
+    const ux = (tgt.x - me.x) / len;
+    const uy = (tgt.y - me.y) / len;
+    [x, y] = [-uy * t.m.side + ux * 0.3, ux * t.m.side + uy * 0.3];
   }
+  // ease towards the new heading instead of snapping to it
+  const k = 1 / p.react;
+  x = t.m.last.x + (x - t.m.last.x) * k;
+  y = t.m.last.y + (y - t.m.last.y) * k;
+  t.m.last = { x, y, dash: false };
   // stay clear of the hole, looking a little ahead
   const ahead = { x: me.x + me.vx * 0.4, y: me.y + me.vy * 0.4 };
   const r = Math.hypot(ahead.x, ahead.y);
-  const safe = B.hole + 3;
+  const safe = B.hole + 2.2 + p.caution * 1.6;
   if (r < safe) {
-    const k = ((safe - r) / safe) * 10;
+    const kk = ((safe - r) / safe) * 10;
     const len0 = Math.hypot(x, y) || 1;
-    x = x / len0 + (ahead.x / (r || 1)) * k;
-    y = y / len0 + (ahead.y / (r || 1)) * k;
+    x = x / len0 + (ahead.x / (r || 1)) * kk;
+    y = y / len0 + (ahead.y / (r || 1)) * kk;
+    // heading inward fast: don't dash into the hole
+    if ((me.vx * me.x + me.vy * me.y) / (Math.hypot(me.x, me.y) || 1) < -1) dash = false;
   }
   const len = Math.hypot(x, y) || 1;
   let use = false;
   if (f.weapon && !running) {
     const w = f.weapon;
-    const p = Math.random();
-    if (w === "laser" || w === "rocket") use = p < 0.04;
-    else if (w === "hammer" || w === "spikes" || w === "magnet") use = foeD < (w === "magnet" ? 5 : 6) && p < 0.08;
-    else if (w === "mine") use = foeD < 7 && p < 0.03;
+    const q = Math.random() / p.trigger;
+    const range = 4 + p.aggro * 3;
+    if (w === "laser" || w === "rocket") use = q < 0.04;
+    else if (w === "hammer" || w === "spikes" || w === "magnet") use = tD < (w === "magnet" ? 5 : range) && q < 0.08;
+    else if (w === "mine") use = foeD < 7 && q < 0.03;
   }
-  return { x: (x / len) * level, y: (y / len) * level, dash: foeD < 4 && Math.random() < 0.03, use };
+  const g = Math.min(1, level * p.throttle);
+  return { x: (x / len) * g, y: (y / len) * g, dash, use };
 }

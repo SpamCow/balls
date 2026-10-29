@@ -14,7 +14,7 @@ const log = (...a: unknown[]) => console.log(new Date().toISOString(), ...a);
 import type { Env } from "./env";
 
 export type Phase = "waiting" | "countdown" | "playing" | "over" | "expired";
-export type Mode = "paid" | "practice" | "friends";
+export type Mode = "paid" | "practice" | "friends" | "watch"; // watch: four bots, everyone spectates, rounds loop
 export type { Variant } from "../shared/config";
 import type { Variant } from "../shared/config";
 
@@ -84,7 +84,7 @@ export class Room {
     if (this.cfg.mode === "paid") return this.phase === "waiting" && now < (this.cfg.joinDeadline ?? 0) && this.seats.length < this.cfg.maxPlayers;
     if (this.cfg.mode === "practice")
       return (this.phase === "waiting" || (this.phase === "countdown" && this.startsAt - Date.now() > 1500)) && this.seats.some((s) => s === null);
-    return true; // friends rooms take spectators even when full
+    return true; // friends and watch rooms take spectators
   }
 
   get idle() {
@@ -99,7 +99,8 @@ export class Room {
     // one live connection per wallet: a new tab replaces the old one
     if (address) for (const c of this.conns) if (c.address === address) this.drop(c);
     this.conns.add(conn);
-    if (this.cfg.mode !== "paid") this.takeSeat(conn);
+    if (this.cfg.mode === "watch") this.watchNext(1);
+    else if (this.cfg.mode !== "paid") this.takeSeat(conn);
     // remembered by wallet (or guest seat), so it follows the player when seats are reordered
     const skinKey = conn.seat !== null ? this.seats[conn.seat] : address;
     if (skinKey) this.skinBy.set(skinKey, skin);
@@ -392,5 +393,16 @@ export class Room {
     this.lastActive = Date.now();
     this.broadcast({ t: "over", ...this.result });
     this.broadcastSeats();
+    if (cfg.mode === "watch") this.watchNext(7);
   }
+
+  /** Watch rooms: start (or restart) a bots-only round while anyone is watching. */
+  private watchNext(sec: number) {
+    if (this.watchTimer || (this.phase !== "waiting" && this.phase !== "over")) return;
+    this.watchTimer = setTimeout(() => {
+      this.watchTimer = null;
+      if (this.conns.size && (this.phase === "waiting" || this.phase === "over")) this.resetForRound(true);
+    }, sec * 1000);
+  }
+  private watchTimer: ReturnType<typeof setTimeout> | null = null;
 }
