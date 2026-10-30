@@ -1454,6 +1454,7 @@ async function boot() {
   $("#race-btn").onclick = () => joinPractice("race");
   $("#friends-btn").onclick = createFriends;
   $("#watch-btn").onclick = () => watchBots();
+  $("#watch-battle-btn").onclick = () => watchBots("battle");
   $("#watch-modes").querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.onclick = () => room?.variant !== b.dataset.v && watchBots(b.dataset.v as Variant)));
   $("#start-btn").onclick = beginFriends;
   $("#join-form").addEventListener("submit", (e) => {
